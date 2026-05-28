@@ -19,7 +19,23 @@ declare -A _PROVIDER_BASE_URLS=(
 
 declare -A _PROVIDER_DEFAULT_MODELS=(
     [github]="gpt-4o-mini"
-    [kilo]="gpt-4o-mini"
+    [kilo]="openai/gpt-4o-mini"
+)
+
+# Whether the provider supports the OpenAI-compatible /models endpoint at the chat base URL
+declare -A _PROVIDER_HAS_MODELS_ENDPOINT=(
+    [github]="true"
+    [kilo]="false"
+)
+
+# Separate models endpoint URL (overrides base URL + /models)
+declare -A _PROVIDER_MODELS_URL=(
+    [kilo]="https://api.kilo.ai/api/gateway/models"
+)
+
+# Known models for providers that don't expose /models (pipe-separated)
+declare -A _PROVIDER_KNOWN_MODELS=(
+    [kilo]="anthropic/claude-sonnet-4.6|anthropic/claude-sonnet-4.5|anthropic/claude-opus-4.7|anthropic/claude-opus-4.6|anthropic/claude-3.5-sonnet-20241022|openai/gpt-4o|openai/gpt-4o-mini|openai/gpt-4-turbo|openai/gpt-3.5-turbo|google/gemini-2.5-pro|google/gemini-2.5-flash|google/gemini-2.0-flash"
 )
 
 # ── Load config file (key=value, # comments) ──────────────────────

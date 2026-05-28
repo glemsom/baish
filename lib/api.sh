@@ -12,23 +12,47 @@ declare -A _API_MODEL_CONTEXT=(
     ["gpt-4-turbo"]="128000"
     ["gpt-4"]="8192"
     ["gpt-3.5-turbo"]="16385"
-    ["claude-sonnet-4-20250514"]="200000"
-    ["claude-3-5-sonnet-20241022"]="200000"
-    ["claude-3-opus-20240229"]="200000"
+    ["claude-sonnet-4"]="200000"
+    ["claude-sonnet-4.5"]="200000"
+    ["claude-sonnet-4.6"]="200000"
+    ["claude-opus-4.6"]="200000"
+    ["claude-opus-4.7"]="200000"
+    ["claude-3-5-sonnet"]="200000"
+    ["claude-3-opus"]="200000"
     ["gemini-2.5-pro"]="1000000"
     ["gemini-2.5-flash"]="1000000"
     ["gemini-2.0-flash"]="1000000"
 )
 
+# ── Resolve the correct /models URL for the provider ───────────────
+api_models_url() {
+    # Provider-specific override takes precedence
+    if [[ -n "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]:-}" ]]; then
+        echo "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]}"
+    else
+        echo "${BAISH_BASE_URL}/models"
+    fi
+}
+
 # ── Fetch available models from provider ───────────────────────────
 # Returns: raw JSON from /models endpoint on stdout
 # Exit codes: 0 = success, 1 = error
 api_fetch_models() {
+    local url
+    url=$(api_models_url)
+
+    # Check if provider has a models endpoint
+    if [[ "${_PROVIDER_HAS_MODELS_ENDPOINT[$BAISH_PROVIDER]:-true}" == "false" ]] && [[ -z "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]:-}" ]]; then
+        # No endpoint — emit known models as synthetic OpenAI response
+        api_emit_known_models
+        return 0
+    fi
+
     local response
     response=$(curl -sf --max-time 30 \
         -H "Authorization: Bearer ${BAISH_API_KEY}" \
-        "${BAISH_BASE_URL}/models" 2>/dev/null) || {
-        echo "Error: Could not reach ${BAISH_BASE_URL}/models" >&2
+        "$url" 2>/dev/null) || {
+        echo "Error: Could not reach $url" >&2
         return 1
     }
 
@@ -40,19 +64,45 @@ api_fetch_models() {
     echo "$response"
 }
 
+# ── Emit known models as a synthetic OpenAI-compatible response ────
+api_emit_known_models() {
+    local known="${_PROVIDER_KNOWN_MODELS[$BAISH_PROVIDER]:-}"
+    if [[ -z "$known" ]]; then
+        echo "Error: No known models configured for provider" >&2
+        return 1
+    fi
+
+    local json='{"data":['
+    local first=true
+    IFS='|' read -ra models <<< "$known"
+    for model_id in "${models[@]}"; do
+        if $first; then
+            first=false
+        else
+            json+=","
+        fi
+        json+='{"id":"'"$model_id"'","object":"model"}'
+    done
+    json+=']}'
+    echo "$json"
+}
+
 # ── Look up model context window ───────────────────────────────────
 api_lookup_model_context() {
     local model="${BAISH_MODEL}"
     local context=""
 
     # 1. Try /models endpoint
+    local models_url
+    models_url=$(api_models_url)
     local models_resp
     models_resp=$(curl -sf --max-time 10 \
         -H "Authorization: Bearer ${BAISH_API_KEY}" \
-        "${BAISH_BASE_URL}/models" 2>/dev/null) || models_resp=""
+        "$models_url" 2>/dev/null) || models_resp=""
 
     if [[ -n "$models_resp" ]]; then
         # Try OpenAI format (.data[]) first, then flat array (.[])
+        # Kilo uses "context_length", OpenAI uses "max_context"
         local model_data
         model_data=$(echo "$models_resp" | jq -r \
             --arg m "$model" \
