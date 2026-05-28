@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2154
+# shellcheck source=./lib/config.sh
+# shellcheck source=./lib/tui.sh
+# shellcheck source=./lib/skills.sh
+# shellcheck source=./lib/tools.sh
+# shellcheck source=./lib/prompt.sh
+# shellcheck source=./lib/api.sh
+# shellcheck source=./lib/agent.sh
+set -euo pipefail
+
+BAISH_VERSION="0.2.0"
+
+# ── Script directory for lib sourcing ───────────────────────────────
+_BAISH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── Source core libraries ──────────────────────────────────────────
+source "${_BAISH_DIR}/lib/config.sh"
+source "${_BAISH_DIR}/lib/tui.sh"
+source "${_BAISH_DIR}/lib/skills.sh"
+source "${_BAISH_DIR}/lib/tools.sh"
+source "${_BAISH_DIR}/lib/prompt.sh"
+source "${_BAISH_DIR}/lib/api.sh"
+source "${_BAISH_DIR}/lib/agent.sh"
+
+# ── Banner ─────────────────────────────────────────────────────────
+_print_banner() {
+    echo ""
+    echo -e "  ${_tui_bold}${_tui_cyan}BAISH${_tui_reset} ${_tui_cyan}v${BAISH_VERSION}${_tui_reset}"
+    echo -e "  ${_tui_cyan}BASH + AI — multi-turn coding assistant${_tui_reset}"
+    echo ""
+    echo -e "  ${_tui_dim}provider:${_tui_reset} ${BAISH_PROVIDER}  ${_tui_dim}model:${_tui_reset} ${BAISH_MODEL}  ${_tui_dim}context:${_tui_reset} ${BAISH_MAX_CONTEXT} tokens  ${_tui_dim}tools:${_tui_reset} ${#TOOL_NAMES[@]}  ${_tui_dim}skills:${_tui_reset} $(skills_count)"
+    echo -e "  Type ${_tui_bold}quit${_tui_reset} or ${_tui_bold}exit${_tui_reset} to leave."
+    echo ""
+}
+
+# ── Signal handling ────────────────────────────────────────────────
+trap _tui_interrupt_handler INT TERM
+
+# ── Main loop ──────────────────────────────────────────────────────
+main() {
+    config_init
+    skills_discover
+    _system_prompt="$(prompt_build)"
+    _tools_json="$(tools_build_definitions_json)"
+
+    _print_banner
+
+    agent_loop
+}
+
+main "$@"
