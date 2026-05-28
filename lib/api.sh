@@ -2,28 +2,6 @@
 # ── lib/api.sh — OpenAI-compatible API client & context management ──
 # Requires: lib/config.sh sourced first (BAISH_BASE_URL, BAISH_API_KEY, etc.)
 
-# ── Hardcoded model context fallback table ─────────────────────────
-declare -A _API_MODEL_CONTEXT=(
-    ["gpt-5"]="200000"
-    ["gpt-5-mini"]="128000"
-    ["gpt-5-nano"]="128000"
-    ["gpt-4o"]="128000"
-    ["gpt-4o-mini"]="128000"
-    ["gpt-4-turbo"]="128000"
-    ["gpt-4"]="8192"
-    ["gpt-3.5-turbo"]="16385"
-    ["claude-sonnet-4"]="200000"
-    ["claude-sonnet-4.5"]="200000"
-    ["claude-sonnet-4.6"]="200000"
-    ["claude-opus-4.6"]="200000"
-    ["claude-opus-4.7"]="200000"
-    ["claude-3-5-sonnet"]="200000"
-    ["claude-3-opus"]="200000"
-    ["gemini-2.5-pro"]="1000000"
-    ["gemini-2.5-flash"]="1000000"
-    ["gemini-2.0-flash"]="1000000"
-)
-
 # ── Resolve the correct /models URL for the provider ───────────────
 api_models_url() {
     # Provider-specific override takes precedence
@@ -43,9 +21,8 @@ api_fetch_models() {
 
     # Check if provider has a models endpoint
     if [[ "${_PROVIDER_HAS_MODELS_ENDPOINT[$BAISH_PROVIDER]:-true}" == "false" ]] && [[ -z "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]:-}" ]]; then
-        # No endpoint — emit known models as synthetic OpenAI response
-        api_emit_known_models
-        return 0
+        echo "Error: Provider '$BAISH_PROVIDER' does not expose a /models endpoint" >&2
+        return 1
     fi
 
     local response
@@ -64,28 +41,6 @@ api_fetch_models() {
     echo "$response"
 }
 
-# ── Emit known models as a synthetic OpenAI-compatible response ────
-api_emit_known_models() {
-    local known="${_PROVIDER_KNOWN_MODELS[$BAISH_PROVIDER]:-}"
-    if [[ -z "$known" ]]; then
-        echo "Error: No known models configured for provider" >&2
-        return 1
-    fi
-
-    local json='{"data":['
-    local first=true
-    IFS='|' read -ra models <<< "$known"
-    for model_id in "${models[@]}"; do
-        if $first; then
-            first=false
-        else
-            json+=","
-        fi
-        json+='{"id":"'"$model_id"'","object":"model"}'
-    done
-    json+=']}'
-    echo "$json"
-}
 
 # ── Look up model context window ───────────────────────────────────
 api_lookup_model_context() {
@@ -113,20 +68,7 @@ api_lookup_model_context() {
         fi
     fi
 
-    # 2. Hardcoded lookup table
-    for key in "${!_API_MODEL_CONTEXT[@]}"; do
-        if [[ "$model" == *"$key"* ]]; then
-            context="${_API_MODEL_CONTEXT[$key]}"
-            break
-        fi
-    done
-
-    if [[ -n "$context" ]]; then
-        echo "$context"
-        return 0
-    fi
-
-    # 3. Fallback to config value
+    # 2. Fallback to config value
     echo "$BAISH_MAX_CONTEXT"
     return 0
 }
