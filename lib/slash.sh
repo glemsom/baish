@@ -82,12 +82,20 @@ _slash_handler_models() {
     fi
 
     # Extract model IDs
+    # 1. OpenAI format: {"data":[{"id":"model-name"}...]}
+    # 2. GitHub Models format: [{"name":"model-name","task":"chat-completion"}...]
+    #    (GitHub's .id is an Azure URI, not a usable model name)
     local model_list
-    model_list=$(echo "$models_json" | jq -r '.data[].id // empty' 2>/dev/null | sort)
+    model_list=$(echo "$models_json" | jq -r 'if type == "array" then empty else .data[].id // empty end' 2>/dev/null | sort)
 
-    # If .data[].id extraction failed, try alternative formats
+    # If not OpenAI format, try flat array with .name (GitHub Models format)
     if [[ -z "$model_list" ]]; then
-        model_list=$(echo "$models_json" | jq -r '.[].id // .[] | select(type == "object") | .id // empty' 2>/dev/null | sort)
+        model_list=$(echo "$models_json" | jq -r 'if type == "array" then .[] | select(.task == "chat-completion") | .name // empty else empty end' 2>/dev/null | sort)
+    fi
+
+    # Last resort: try .id from flat array (may return Azure URIs or similar)
+    if [[ -z "$model_list" ]]; then
+        model_list=$(echo "$models_json" | jq -r 'if type == "array" then .[].id // empty else .data[] | .id // empty end' 2>/dev/null | sort)
     fi
 
     if [[ -z "$model_list" ]]; then

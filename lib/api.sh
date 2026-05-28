@@ -52,11 +52,11 @@ api_lookup_model_context() {
         "${BAISH_BASE_URL}/models" 2>/dev/null) || models_resp=""
 
     if [[ -n "$models_resp" ]]; then
-        # Try to find the model in the response and extract its context
+        # Try OpenAI format (.data[]) first, then flat array (.[])
         local model_data
         model_data=$(echo "$models_resp" | jq -r \
             --arg m "$model" \
-            '.data[] | select(.id == $m or .id | contains($m)) | .max_context // .context_length // empty' 2>/dev/null) || model_data=""
+            'if type == "array" then .[] else .data[] end | select(.id == $m or (.id | contains($m)) or .name == $m or (.name | contains($m))) | .max_context // .context_length // empty' 2>/dev/null) || model_data=""
         if [[ -n "$model_data" ]]; then
             echo "$model_data"
             return 0
