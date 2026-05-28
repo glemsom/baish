@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ── lib/tui.sh — Terminal UI helpers ────────────────────────────────
-# Spinner, colors, glow rendering, prompt display
+# Colors, glow rendering, prompt display
 
 # ── Colours ────────────────────────────────────────────────────────
 _tui_cyan='\033[0;36m'
@@ -10,51 +10,6 @@ _tui_green='\033[0;32m'
 _tui_red='\033[0;31m'
 _tui_yellow='\033[0;33m'
 _tui_reset='\033[0m'
-
-# ── Spinner state ──────────────────────────────────────────────────
-_tui_spinner_pid=""
-_tui_spinner_msg=""
-
-# ── Spinner implementation (pure bash, background subshell) ────────
-_tui_spinner_run() {
-    local msg="$1"
-    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    local i=0
-    while true; do
-        printf "\r${_tui_cyan}%s${_tui_reset}  %s" "${frames[i]}" "$msg"
-        i=$(( (i + 1) % ${#frames[@]} ))
-        sleep 0.08
-    done
-}
-
-tui_spinner_start() {
-    _tui_spinner_msg="$1"
-    _tui_spinner_run "$_tui_spinner_msg" &
-    _tui_spinner_pid=$!
-    # Disable cursor
-    printf '\033[?25l'
-}
-
-tui_spinner_stop() {
-    if [[ -n "$_tui_spinner_pid" ]] && kill -0 "$_tui_spinner_pid" 2>/dev/null; then
-        kill "$_tui_spinner_pid" 2>/dev/null || true
-        wait "$_tui_spinner_pid" 2>/dev/null || true
-        _tui_spinner_pid=""
-    fi
-    # Re-enable cursor, clear spinner line
-    printf '\033[?25h\r\033[K'
-}
-
-tui_spinner_update() {
-    _tui_spinner_msg="$1"
-    # Restart spinner with new message
-    if [[ -n "$_tui_spinner_pid" ]] && kill -0 "$_tui_spinner_pid" 2>/dev/null; then
-        kill "$_tui_spinner_pid" 2>/dev/null || true
-        wait "$_tui_spinner_pid" 2>/dev/null || true
-    fi
-    _tui_spinner_run "$_tui_spinner_msg" &
-    _tui_spinner_pid=$!
-}
 
 # ── Print (glow-rendered if available) ─────────────────────────────
 tui_print() {
@@ -87,9 +42,40 @@ tui_tool_done() {
     printf '%b\n' "${_tui_dim}▸ done${_tui_reset}"
 }
 
-# ── Interrupt handler (stops spinner gracefully) ───────────────────
-_tui_interrupt_handler() {
-    tui_spinner_stop
-    printf "\r\033[K"
-    tui_prompt
+
+# ── Readline tab completion for slash commands ─────────────────────
+_slash_complete() {
+    local word="${READLINE_LINE:0:$READLINE_POINT}"
+
+    # Only handle when the current word starts with / (no spaces)
+    if [[ "$word" == /* && "$word" != *" "* ]]; then
+        local matches=()
+        for cmd in "${!_SLASH_COMMANDS[@]}"; do
+            if [[ "$cmd" == "$word"* ]]; then
+                matches+=("$cmd")
+            fi
+        done
+
+        if [[ ${#matches[@]} -eq 1 ]]; then
+            # Single match: complete it
+            READLINE_LINE="${matches[0]}${READLINE_LINE:$READLINE_POINT}"
+            READLINE_POINT=${#matches[0]}
+        elif [[ ${#matches[@]} -gt 1 ]]; then
+            # Multiple matches: display above current line
+            echo ""
+            for cmd in $(printf '%s\n' "${matches[@]}" | sort); do
+                local desc="${_SLASH_COMMANDS[$cmd]:-}"
+                if [[ -n "$desc" ]]; then
+                    echo -e "  ${_tui_cyan}${cmd}${_tui_reset}  ${_tui_dim}${desc}${_tui_reset}"
+                else
+                    echo -e "  ${_tui_cyan}${cmd}${_tui_reset}"
+                fi
+            done
+        fi
+    fi
+}
+
+# ── Setup readline tab completion (call before agent_loop) ─────────
+tui_setup_readline() {
+    bind -x '"\t": _slash_complete'
 }

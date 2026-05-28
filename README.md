@@ -88,7 +88,7 @@ BAISH discovers skills at startup and shows them in the system prompt. The AI ca
 - **DinD** — Docker-in-Docker for containerized tool execution.
 - **OpenAI-compatible** — Works with any provider supporting the Chat Completions API.
 - **Context management** — Automatic context window detection, token estimation, and message trimming.
-- **TUI** — ANSI spinner, colored prompts, `glow` markdown rendering.
+- **TUI** — Colored prompts, `glow` markdown rendering.
 - **Ephemeral** — Container is disposable; no state persists beyond the session.
 
 ## Dependencies (inside container)

@@ -36,8 +36,6 @@ agent_init() {
 
 # ── Cleanup ────────────────────────────────────────────────────────
 _agent_cleanup() {
-    # Kill any leftover spinner background process
-    tui_spinner_stop
     # Clean up temp messages file
     if [[ -n "$_AGENT_MESSAGES_FILE" && -f "$_AGENT_MESSAGES_FILE" ]]; then
         rm -f "$_AGENT_MESSAGES_FILE"
@@ -217,21 +215,30 @@ agent_loop() {
 
     while true; do
         tui_prompt
-        if ! read -r user_input; then
+        if ! read -re user_input; then
             echo ""
             break
         fi
 
-        # Handle exit commands
+        # Handle empty input
+        [[ -z "$user_input" ]] && continue
+
+        # Handle backward-compatible exit commands
         case "$user_input" in
             quit|exit)
                 echo -e "  ${_tui_bold}Goodbye!${_tui_reset}"
                 break
                 ;;
-            "")
-                continue
-                ;;
         esac
+
+        # Handle slash commands
+        if [[ "$user_input" == /* ]]; then
+            slash_dispatch "$user_input"
+            if $_slash_exit; then
+                break
+            fi
+            continue
+        fi
 
         # Append user message to history
         agent_append_message "user" "$user_input"
@@ -249,15 +256,10 @@ agent_loop() {
             local messages_json
             messages_json=$(agent_get_messages)
 
-            # Show spinner
-            tui_spinner_start "Thinking..."
-
             # Call the API
             local api_response
             api_response=$(api_chat "$messages_json" "$_tools_json")
             local api_status=$?
-
-            tui_spinner_stop
 
             if [[ $api_status -ne 0 ]]; then
                 echo -e "  ${_tui_red}Error: API call failed.${_tui_reset}"
@@ -297,10 +299,8 @@ agent_loop() {
                     tui_tool_start "$tool_name" "$args_summary"
 
                     # Execute the tool
-                    tui_spinner_start "▸ $tool_name ..."
                     local tool_result
                     tool_result=$(_agent_exec_tool_call "$single_call") || tool_result="Error executing tool $tool_name"
-                    tui_spinner_stop
 
                     tui_tool_done
 

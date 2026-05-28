@@ -69,6 +69,23 @@ config_resolve_provider() {
     fi
 }
 
+# ── Persist a config value to the config file ──────────────────────
+# Args: key  value
+config_set() {
+    local key="$1" value="$2"
+    local file="${BAISH_CONFIG_FILE}"
+
+    mkdir -p "$(dirname "$file")"
+
+    if [[ -f "$file" ]] && grep -q "^${key}[[:space:]]*=" "$file" 2>/dev/null; then
+        # Update existing line in place
+        sed -i "s|^${key}[[:space:]]*=.*|${key}=${value}|" "$file"
+    else
+        # Append new key=value
+        echo "${key}=${value}" >> "$file"
+    fi
+}
+
 # ── Main init ──────────────────────────────────────────────────────
 config_init() {
     config_load_file

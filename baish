@@ -36,9 +36,6 @@ _print_banner() {
     echo ""
 }
 
-# ── Signal handling ────────────────────────────────────────────────
-trap _tui_interrupt_handler INT TERM
-
 # ── Main loop ──────────────────────────────────────────────────────
 main() {
     config_init

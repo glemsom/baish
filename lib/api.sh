@@ -20,6 +20,26 @@ declare -A _API_MODEL_CONTEXT=(
     ["gemini-2.0-flash"]="1000000"
 )
 
+# ── Fetch available models from provider ───────────────────────────
+# Returns: raw JSON from /models endpoint on stdout
+# Exit codes: 0 = success, 1 = error
+api_fetch_models() {
+    local response
+    response=$(curl -sf --max-time 30 \
+        -H "Authorization: Bearer ${BAISH_API_KEY}" \
+        "${BAISH_BASE_URL}/models" 2>/dev/null) || {
+        echo "Error: Could not reach ${BAISH_BASE_URL}/models" >&2
+        return 1
+    }
+
+    if [[ -z "$response" ]]; then
+        echo "Error: Empty response from /models endpoint" >&2
+        return 1
+    fi
+
+    echo "$response"
+}
+
 # ── Look up model context window ───────────────────────────────────
 api_lookup_model_context() {
     local model="${BAISH_MODEL}"
