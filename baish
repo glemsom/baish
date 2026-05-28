@@ -7,6 +7,7 @@
 # shellcheck source=./lib/prompt.sh
 # shellcheck source=./lib/api.sh
 # shellcheck source=./lib/agent.sh
+# shellcheck source=./lib/slash.sh
 set -euo pipefail
 
 BAISH_VERSION="0.2.0"
@@ -22,6 +23,7 @@ source "${_BAISH_DIR}/lib/tools.sh"
 source "${_BAISH_DIR}/lib/prompt.sh"
 source "${_BAISH_DIR}/lib/api.sh"
 source "${_BAISH_DIR}/lib/agent.sh"
+source "${_BAISH_DIR}/lib/slash.sh"
 
 # ── Banner ─────────────────────────────────────────────────────────
 _print_banner() {
@@ -30,7 +32,7 @@ _print_banner() {
     echo -e "  ${_tui_cyan}BASH + AI — multi-turn coding assistant${_tui_reset}"
     echo ""
     echo -e "  ${_tui_dim}provider:${_tui_reset} ${BAISH_PROVIDER}  ${_tui_dim}model:${_tui_reset} ${BAISH_MODEL}  ${_tui_dim}context:${_tui_reset} ${BAISH_MAX_CONTEXT} tokens  ${_tui_dim}tools:${_tui_reset} ${#TOOL_NAMES[@]}  ${_tui_dim}skills:${_tui_reset} $(skills_count)"
-    echo -e "  Type ${_tui_bold}quit${_tui_reset} or ${_tui_bold}exit${_tui_reset} to leave."
+    echo -e "  Type ${_tui_bold}/help${_tui_reset} for commands.  ${_tui_dim}quit${_tui_reset} / ${_tui_dim}exit${_tui_reset} to leave."
     echo ""
 }
 
@@ -41,6 +43,8 @@ trap _tui_interrupt_handler INT TERM
 main() {
     config_init
     skills_discover
+    slash_init
+    tui_setup_readline
     _system_prompt="$(prompt_build)"
     _tools_json="$(tools_build_definitions_json)"
 
