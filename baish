@@ -8,7 +8,6 @@
 # shellcheck source=./lib/api.sh
 # shellcheck source=./lib/agent.sh
 # shellcheck source=./lib/slash.sh
-set -euo pipefail
 
 BAISH_VERSION="0.2.0"
 

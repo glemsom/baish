@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 # ── Start Docker daemon (DinD) ─────────────────────────────────────
 if [ -S /var/run/docker.sock ]; then
