@@ -99,6 +99,19 @@ strip_ansi() {
   [ "$(jq -r '.detail' <<<"$summary_json")" = 'old_text_not_found: edit entry 0 oldText was not found exactly once.' ]
 }
 
+@test "bash tool result summarizer keeps the last 10 output lines" {
+  local summary_json stdout_text expected_tail
+
+  stdout_text="$(printf 'line-%02d\n' {1..12})"
+  expected_tail="$(printf 'line-%02d\n' {3..12})"
+  expected_tail="${expected_tail%$'\n'}"
+  summary_json="$(baish_agent_summarize_tool_result bash "$(jq -cn --arg stdout "$stdout_text" '{ok: true, tool: "bash", data: {exit_code: 0, stdout: $stdout, stderr: ""}}')")"
+
+  [ "$(jq -r '.status' <<<"$summary_json")" = 'success' ]
+  [ "$(jq -r '.summary' <<<"$summary_json")" = 'completed with output' ]
+  [ "$(jq -r '.detail' <<<"$summary_json")" = "$expected_tail" ]
+}
+
 @test "first chat auto-connects and then returns the assistant response" {
   local stub_bin auth_file state_file
 
@@ -170,6 +183,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ ⚙️ bash'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf single-tool-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ single-tool-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ✅ completed'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool> bash'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool_result>'* ]]
@@ -198,8 +212,10 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf first-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf second-output >&2; exit 3'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ first-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ❌ bash failed (exit 3)'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ stderr: second-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ stderr:'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'second-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed 2 tool calls.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'first-output' ]

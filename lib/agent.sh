@@ -266,21 +266,40 @@ baish_agent_truncate_preview() {
   fi
 }
 
-baish_agent_first_non_empty_line() {
+baish_agent_tail_lines() {
   local text="$1"
+  local max_lines="$2"
 
-  awk '
-    {
-      line = $0
-      sub(/\r$/, "", line)
-      trimmed = line
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed)
-      if (length(trimmed) > 0) {
-        print trimmed
-        exit
-      }
-    }
-  ' <<<"$text"
+  if [[ ! "$max_lines" =~ ^[0-9]+$ ]] || (( max_lines <= 0 )); then
+    printf '%s' "$text"
+    return 0
+  fi
+
+  printf '%s' "$text" | tail -n "$max_lines"
+}
+
+baish_agent_bash_output_preview() {
+  local stdout_text="$1"
+  local stderr_text="$2"
+  local preview='' stdout_preview stderr_preview
+
+  if [[ -n "$stdout_text" ]]; then
+    stdout_preview="$(baish_agent_tail_lines "$stdout_text" 10)" || return 1
+    preview="$stdout_preview"
+  fi
+
+  if [[ -n "$stderr_text" ]]; then
+    stderr_preview="$(baish_agent_tail_lines "$stderr_text" 10)" || return 1
+    if [[ -n "$preview" ]]; then
+      preview+=$'\n''stderr:'$'\n'
+      preview+="$stderr_preview"
+    else
+      preview='stderr:'$'\n'
+      preview+="$stderr_preview"
+    fi
+  fi
+
+  printf '%s' "$preview"
 }
 
 baish_agent_count_label() {
@@ -382,7 +401,7 @@ baish_agent_summarize_tool_result() {
   local tool_name="$1"
   local result_json="$2"
   local status summary footer detail
-  local line_count replacements bytes action exit_code stdout_text stderr_text preview_line
+  local line_count replacements bytes action exit_code stdout_text stderr_text
 
   if ! jq -e 'type == "object" and (.ok? | type == "boolean")' >/dev/null 2>&1 <<<"$result_json"; then
     jq -cn \
@@ -438,19 +457,14 @@ baish_agent_summarize_tool_result() {
       stdout_text="$(jq -r '.data.stdout // ""' <<<"$result_json")" || return 1
       stderr_text="$(jq -r '.data.stderr // ""' <<<"$result_json")" || return 1
 
+      if [[ -n "$stdout_text" || -n "$stderr_text" ]]; then
+        detail="$(baish_agent_bash_output_preview "$stdout_text" "$stderr_text")" || return 1
+      fi
+
       if (( exit_code != 0 )); then
         status='failure'
         footer="bash failed (exit $exit_code)"
-        preview_line="$(baish_agent_first_non_empty_line "$stderr_text")" || return 1
-        if [[ -n "$preview_line" ]]; then
-          detail="stderr: $(baish_agent_truncate_preview "$(baish_agent_normalize_preview_text "$preview_line")" 140)"
-        else
-          preview_line="$(baish_agent_first_non_empty_line "$stdout_text")" || return 1
-          if [[ -n "$preview_line" ]]; then
-            detail="stdout: $(baish_agent_truncate_preview "$(baish_agent_normalize_preview_text "$preview_line")" 140)"
-          fi
-        fi
-      elif [[ -n "$stdout_text" || -n "$stderr_text" ]]; then
+      elif [[ -n "$detail" ]]; then
         summary='completed with output'
       else
         summary='completed (exit 0)'
@@ -541,13 +555,46 @@ baish_agent_print_tool_round_end() {
     "$text"
 }
 
+baish_agent_print_tool_round_result_detail() {
+  local detail="$1"
+  local first_line=1 line
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if (( first_line == 1 )); then
+      printf '%s│%s   %s↳ %s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_dim)" \
+        "$line" \
+        "$(baish_agent_style_reset)"
+      first_line=0
+    else
+      printf '%s│%s     %s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)" \
+        "$line" \
+        "$(baish_agent_style_reset)"
+    fi
+  done <<<"$detail"
+}
+
 baish_agent_print_tool_round_detail() {
   local detail="$1"
+  local first_line=1 line
 
-  printf '   %s↳ %s%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$detail" \
-    "$(baish_agent_style_reset)"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if (( first_line == 1 )); then
+      printf '   %s↳ %s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$line" \
+        "$(baish_agent_style_reset)"
+      first_line=0
+    else
+      printf '     %s%s\n' \
+        "$line" \
+        "$(baish_agent_style_reset)"
+    fi
+  done <<<"$detail"
 }
 
 baish_agent_run_user_message() {
@@ -641,14 +688,17 @@ baish_agent_run_user_message() {
       tool_render_footer="$(jq -r '.footer // ""' <<<"$tool_result_summary_json")" || return 1
       tool_render_detail="$(jq -r '.detail // ""' <<<"$tool_result_summary_json")" || return 1
 
-      if [[ "$tool_render_status" == 'success' ]]; then
-        if [[ -n "$tool_render_summary" ]]; then
-          baish_agent_print_tool_round_result_summary "$tool_render_summary"
-        fi
-      elif [[ "$round_status" == 'success' ]]; then
+      if [[ -n "$tool_render_summary" ]]; then
+        baish_agent_print_tool_round_result_summary "$tool_render_summary"
+      fi
+      if [[ -n "$tool_render_detail" ]]; then
+        baish_agent_print_tool_round_result_detail "$tool_render_detail"
+      fi
+
+      if [[ "$tool_render_status" != 'success' && "$round_status" == 'success' ]]; then
         round_status='failure'
         round_footer="$tool_render_footer"
-        round_detail="$tool_render_detail"
+        round_detail=''
       fi
 
       baish_agent_append_tool_result "$tool_call_id" "$tool_name" "$tool_result" || return 1
