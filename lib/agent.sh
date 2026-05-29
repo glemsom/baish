@@ -557,24 +557,14 @@ baish_agent_print_tool_round_end() {
 
 baish_agent_print_tool_round_result_detail() {
   local detail="$1"
-  local first_line=1 line
+  local line
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if (( first_line == 1 )); then
-      printf '%s│%s   %s↳ %s%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
-        "$(baish_agent_style_dim)" \
-        "$line" \
-        "$(baish_agent_style_reset)"
-      first_line=0
-    else
-      printf '%s│%s     %s%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
-        "$line" \
-        "$(baish_agent_style_reset)"
-    fi
+    printf '%s│%s     %s%s\n' \
+      "$(baish_agent_style_dim)" \
+      "$(baish_agent_style_reset)" \
+      "$line" \
+      "$(baish_agent_style_reset)"
   done <<<"$detail"
 }
 
