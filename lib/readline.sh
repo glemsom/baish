@@ -63,6 +63,65 @@ baish_readline_replace_token() {
   READLINE_POINT=$(( BAISH_READLINE_TOKEN_START + ${#replacement} ))
 }
 
+baish_readline_insert_text() {
+  local text="$1"
+  local line point prefix suffix
+
+  line="${READLINE_LINE:-}"
+  point="${READLINE_POINT:-0}"
+  prefix="${line:0:point}"
+  suffix="${line:point}"
+
+  READLINE_LINE="${prefix}${text}${suffix}"
+  READLINE_POINT=$(( point + ${#text} ))
+  BAISH_READLINE_COMPLETION_STATE=''
+  BAISH_READLINE_COMPLETION_INDEX=0
+}
+
+baish_readline_insert_newline() {
+  baish_readline_insert_text $'\n'
+}
+
+baish_readline_handle_newline_insert() {
+  baish_readline_insert_newline
+}
+
+baish_readline_continue_marker() {
+  printf '%b\n' '\342\201\243\342\201\240\342\200\213\342\201\243'
+}
+
+baish_readline_continuation_prompt() {
+  printf '%s\n' '       '
+}
+
+baish_readline_line_requests_continuation() {
+  local line="$1"
+  local marker
+
+  marker="$(baish_readline_continue_marker)"
+  [[ "$line" == *"$marker" ]]
+}
+
+baish_readline_strip_continuation_marker() {
+  local line="$1"
+  local marker
+
+  marker="$(baish_readline_continue_marker)"
+  BAISH_READLINE_STRIPPED_LINE="${line%$marker}"
+}
+
+baish_readline_enable_keyboard_protocol() {
+  if [[ -t 1 ]]; then
+    printf '\e[>1u'
+  fi
+}
+
+baish_readline_disable_keyboard_protocol() {
+  if [[ -t 1 ]]; then
+    printf '\e[<u'
+  fi
+}
+
 baish_readline_handle_tab() {
   local line point common_prefix state_key next_index append_space=0
   local -a candidates=()
@@ -113,22 +172,37 @@ baish_readline_handle_tab() {
 }
 
 baish_readline_install_bindings() {
+  local continue_marker
+
   if ! [[ -o emacs || -o vi ]]; then
     set -o emacs || return 1
   fi
 
+  continue_marker="$(baish_readline_continue_marker)"
+
   bind -x '"\C-i":baish_readline_handle_tab'
+  bind '"\e[13;2u":"'"$continue_marker"'\C-m"'
+  bind '"\e[13;130u":"'"$continue_marker"'\C-m"'
+  bind '"\e[13;131u":"'"$continue_marker"'\C-m"'
+  bind '"\e[27;2;13~":"'"$continue_marker"'\C-m"'
+  bind '"\e\C-m":"'"$continue_marker"'\C-m"'
 }
 
 baish_readline_loop() {
-  local line read_status
+  local line read_status prompt draft
   local interactive=0
 
   baish_session_init
+  prompt='baish> '
+  draft=''
 
   if [[ -t 0 && -t 1 ]]; then
     interactive=1
-    baish_readline_install_bindings || return 1
+    baish_readline_enable_keyboard_protocol
+    baish_readline_install_bindings || {
+      baish_readline_disable_keyboard_protocol
+      return 1
+    }
   fi
 
   trap 'BAISH_READLINE_INTERRUPTED=1' INT
@@ -138,7 +212,7 @@ baish_readline_loop() {
     line=''
 
     if (( interactive == 1 )); then
-      if read -e -r -p 'baish> ' line; then
+      if read -e -r -p "$prompt" line; then
         read_status=0
       else
         read_status=$?
@@ -153,6 +227,8 @@ baish_readline_loop() {
 
     if (( read_status != 0 )); then
       if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" || $read_status -eq 130 ]]; then
+        draft=''
+        prompt='baish> '
         if (( interactive == 1 )); then
           printf '\n'
         fi
@@ -165,12 +241,28 @@ baish_readline_loop() {
       break
     fi
 
+    if (( interactive == 1 )) && baish_readline_line_requests_continuation "$line"; then
+      baish_readline_strip_continuation_marker "$line"
+      draft+="$BAISH_READLINE_STRIPPED_LINE"$'\n'
+      prompt="$(baish_readline_continuation_prompt)"
+      continue
+    fi
+
+    if [[ -n "$draft" ]]; then
+      line="${draft}${line}"
+      draft=''
+      prompt='baish> '
+    fi
+
     if ! baish_process_input_line "$line"; then
       if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" && $interactive -eq 1 ]]; then
         printf '\n'
       fi
+      prompt='baish> '
       continue
     fi
+
+    prompt='baish> '
 
     if [[ "${BAISH_SESSION_EXIT_REQUESTED:-0}" == "1" ]]; then
       break
@@ -178,4 +270,8 @@ baish_readline_loop() {
   done
 
   trap - INT
+
+  if (( interactive == 1 )); then
+    baish_readline_disable_keyboard_protocol
+  fi
 }

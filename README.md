@@ -68,6 +68,31 @@ baish> /connect
 baish> Inspect this repository and summarize the current tool support.
 ```
 
+### Multiline drafts
+
+BAISH composes a message draft, not just a single physical line.
+
+- `Enter` submits the current draft.
+- A dedicated newline-insert key continues the draft onto the next physical line without sending it yet.
+- Embedded newlines and trailing whitespace/newlines are preserved when the draft is sent.
+- Whitespace-only drafts are ignored.
+
+First-release multiline support is currently targeted at:
+
+- Kitty
+- Ghostty
+
+In interactive mode BAISH requests the Kitty keyboard protocol and binds common newline-insert sequences used by those terminals, including Ghostty's CSI-u `Shift+Enter` sequence.
+
+Because terminal key handling varies, use the manual verification harness to confirm your setup:
+
+```bash
+./scripts/verify-multiline-key.sh observe
+./scripts/verify-multiline-key.sh poc
+```
+
+Unsupported terminals still work, but multiline newline-insert behavior is not guaranteed there.
+
 Exit with:
 
 ```text
@@ -122,6 +147,19 @@ Multiple slash commands can prefix one chat message:
 
 ```text
 /new /skill:tdd /skill:pirate Fix the auth error handling.
+```
+
+The slash-command prefix is parsed only from the start of the submitted draft. The separator between the slash-command prefix and the remaining chat text may contain spaces or newlines, and that separator is trimmed before the chat text is sent.
+
+Examples:
+
+```text
+/new Fix bug
+/new
+Fix bug
+/skill:tdd
+
+Investigate auth
 ```
 
 BAISH processes slash commands from left to right, then sends any remaining text as the user message.
@@ -205,6 +243,12 @@ Run the shell test suite with Bats:
 
 ```bash
 bats test/*.bats
+```
+
+Focused multiline/parser coverage:
+
+```bash
+bats test/readline_slash.bats
 ```
 
 Useful syntax check:

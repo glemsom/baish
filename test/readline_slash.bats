@@ -2,6 +2,11 @@
 
 load test_helper.bash
 
+baish_agent_run_user_message() {
+  BAISH_TEST_AGENT_CALLS=$(( ${BAISH_TEST_AGENT_CALLS:-0} + 1 ))
+  BAISH_TEST_AGENT_LAST_MESSAGE="$1"
+}
+
 setup() {
   REPO_ROOT="$(repo_root)"
   TEST_HOME="$BATS_TEST_TMPDIR/home"
@@ -21,6 +26,8 @@ setup() {
   unset BAISH_PROVIDER
   unset BAISH_ACTIVE_PROVIDER
   unset BAISH_ACTIVE_MODEL
+  unset BAISH_TEST_AGENT_CALLS
+  unset BAISH_TEST_AGENT_LAST_MESSAGE
 
   baish_state_init
   baish_session_reset
@@ -46,12 +53,29 @@ setup() {
   [ "$BAISH_SLASH_REMAINING_TEXT" = 'Fix the auth bug' ]
 }
 
+@test "slash parser trims newline separators before multiline chat text" {
+  baish_slash_parse_line $'/skill:tdd\n\nInvestigate auth'
+
+  [ "${#BAISH_SLASH_COMMANDS[@]}" -eq 1 ]
+  [ "${BAISH_SLASH_COMMANDS[0]}" = 'skill' ]
+  [ "${BAISH_SLASH_ARGS[0]}" = 'tdd' ]
+  [ "$BAISH_SLASH_REMAINING_TEXT" = 'Investigate auth' ]
+}
+
 @test "slash-looking text after chat begins remains chat text" {
   baish_slash_parse_line '/skill:tdd Fix /skill:pirate later'
 
   [ "${#BAISH_SLASH_COMMANDS[@]}" -eq 1 ]
   [ "${BAISH_SLASH_COMMANDS[0]}" = 'skill' ]
   [ "$BAISH_SLASH_REMAINING_TEXT" = 'Fix /skill:pirate later' ]
+}
+
+@test "slash-looking text after multiline chat begins remains chat text" {
+  baish_slash_parse_line $'/skill:tdd Fix this first\n/skill:pirate later'
+
+  [ "${#BAISH_SLASH_COMMANDS[@]}" -eq 1 ]
+  [ "${BAISH_SLASH_COMMANDS[0]}" = 'skill' ]
+  [ "$BAISH_SLASH_REMAINING_TEXT" = $'Fix this first\n/skill:pirate later' ]
 }
 
 @test "colon arguments only are enforced" {
@@ -143,6 +167,42 @@ setup() {
   [[ "$output" == $'/new\n--\n/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
 }
 
+@test "readline insert text mutates READLINE_LINE and READLINE_POINT" {
+  READLINE_LINE='alphaomega'
+  READLINE_POINT=5
+
+  baish_readline_insert_text ' '
+
+  [ "$READLINE_LINE" = 'alpha omega' ]
+  [ "$READLINE_POINT" -eq 6 ]
+}
+
+@test "readline insert newline preserves prefix and suffix" {
+  READLINE_LINE='alphabeta'
+  READLINE_POINT=5
+
+  baish_readline_insert_newline
+
+  [ "$READLINE_LINE" = $'alpha\nbeta' ]
+  [ "$READLINE_POINT" -eq 6 ]
+}
+
+@test "readline continuation marker is detected and stripped" {
+  local marker line
+
+  marker="$(baish_readline_continue_marker)"
+  line="alpha${marker}"
+
+  baish_readline_line_requests_continuation "$line"
+  baish_readline_strip_continuation_marker "$line"
+
+  [ "$BAISH_READLINE_STRIPPED_LINE" = 'alpha' ]
+}
+
+@test "readline continuation prompt is blank-aligned" {
+  [ "$(baish_readline_continuation_prompt)" = '       ' ]
+}
+
 @test "readline bindings install without line editing warnings" {
   run bash -lc '
     source "$1/lib/readline.sh"
@@ -168,6 +228,36 @@ setup() {
   [ "$BAISH_ACTIVE_MODEL" = 'model-a' ]
   [ "$(baish_state_selected_provider)" = 'demo' ]
   [ "$(baish_state_selected_model)" = 'model-a' ]
+}
+
+@test "process input preserves embedded newlines after slash commands" {
+  mkdir -p "$TEST_PROJECT/.baish/skills"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
+
+  baish_process_input_line $'/skill:tdd\nFix line one\nFix line two'
+
+  [ "${BAISH_TEST_AGENT_CALLS:-0}" -eq 1 ]
+  [ "$BAISH_TEST_AGENT_LAST_MESSAGE" = $'Fix line one\nFix line two' ]
+}
+
+@test "process input preserves trailing newlines in real messages" {
+  baish_process_input_line $'Investigate this\n\n'
+
+  [ "${BAISH_TEST_AGENT_CALLS:-0}" -eq 1 ]
+  [ "$BAISH_TEST_AGENT_LAST_MESSAGE" = $'Investigate this\n\n' ]
+}
+
+@test "process input ignores whitespace-only multiline drafts" {
+  baish_process_input_line $' \n\t\n '
+
+  [ "${BAISH_TEST_AGENT_CALLS:-0}" -eq 0 ]
+}
+
+@test "process input ignores slash commands followed only by separator whitespace" {
+  baish_process_input_line $'/new\n\n'
+
+  [ "${BAISH_TEST_AGENT_CALLS:-0}" -eq 0 ]
+  [ "${#BAISH_SESSION_MESSAGES[@]}" -eq 0 ]
 }
 
 @test "/connect authenticates and persists the selected model" {

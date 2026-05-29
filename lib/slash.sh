@@ -75,6 +75,46 @@ baish_slash_parse_token() {
   esac
 }
 
+baish_text_is_blank() {
+  local text="$1"
+
+  [[ -z "$text" || "$text" =~ ^[[:space:]]+$ ]]
+}
+
+baish_slash_split_token_separator() {
+  local input="$1"
+  local length index separator_start char
+
+  BAISH_SLASH_SPLIT_TOKEN=''
+  BAISH_SLASH_SPLIT_SEPARATOR=''
+  BAISH_SLASH_SPLIT_REST=''
+
+  length="${#input}"
+  index=0
+
+  while (( index < length )); do
+    char="${input:index:1}"
+    if [[ "$char" =~ [[:space:]] ]]; then
+      break
+    fi
+    ((index += 1))
+  done
+
+  BAISH_SLASH_SPLIT_TOKEN="${input:0:index}"
+  separator_start=$index
+
+  while (( index < length )); do
+    char="${input:index:1}"
+    if [[ ! "$char" =~ [[:space:]] ]]; then
+      break
+    fi
+    ((index += 1))
+  done
+
+  BAISH_SLASH_SPLIT_SEPARATOR="${input:separator_start:index-separator_start}"
+  BAISH_SLASH_SPLIT_REST="${input:index}"
+}
+
 baish_slash_parse_line() {
   local input="$1"
   local rest token separator
@@ -83,15 +123,10 @@ baish_slash_parse_line() {
   rest="$input"
 
   while [[ "$rest" == /* ]]; do
-    token="$rest"
-    separator=''
-    rest=''
-
-    if [[ "$token" =~ ^([^[:space:]]+)([[:space:]]*)(.*)$ ]]; then
-      token="${BASH_REMATCH[1]}"
-      separator="${BASH_REMATCH[2]}"
-      rest="${BASH_REMATCH[3]}"
-    fi
+    baish_slash_split_token_separator "$rest"
+    token="$BAISH_SLASH_SPLIT_TOKEN"
+    separator="$BAISH_SLASH_SPLIT_SEPARATOR"
+    rest="$BAISH_SLASH_SPLIT_REST"
 
     if ! baish_slash_parse_token "$token"; then
       BAISH_SLASH_PARSE_ERROR="$BAISH_SLASH_TOKEN_ERROR"
@@ -102,7 +137,12 @@ baish_slash_parse_line() {
     BAISH_SLASH_ARGS+=("$BAISH_SLASH_TOKEN_ARG")
 
     if [[ -z "$separator" ]]; then
-      BAISH_SLASH_REMAINING_TEXT="$rest"
+      BAISH_SLASH_REMAINING_TEXT=''
+      return 0
+    fi
+
+    if baish_text_is_blank "$rest"; then
+      BAISH_SLASH_REMAINING_TEXT=''
       return 0
     fi
 
@@ -122,7 +162,7 @@ baish_slash_prefix_is_command_sequence() {
   rest="$prefix"
 
   while true; do
-    if [[ -z "$rest" || "$rest" =~ ^[[:space:]]+$ ]]; then
+    if baish_text_is_blank "$rest"; then
       return 0
     fi
 
@@ -130,15 +170,10 @@ baish_slash_prefix_is_command_sequence() {
       return 1
     fi
 
-    token="$rest"
-    separator=''
-    rest=''
-
-    if [[ "$token" =~ ^([^[:space:]]+)([[:space:]]*)(.*)$ ]]; then
-      token="${BASH_REMATCH[1]}"
-      separator="${BASH_REMATCH[2]}"
-      rest="${BASH_REMATCH[3]}"
-    fi
+    baish_slash_split_token_separator "$rest"
+    token="$BAISH_SLASH_SPLIT_TOKEN"
+    separator="$BAISH_SLASH_SPLIT_SEPARATOR"
+    rest="$BAISH_SLASH_SPLIT_REST"
 
     baish_slash_parse_token "$token" >/dev/null 2>&1 || return 1
 
@@ -448,7 +483,7 @@ baish_process_input_line() {
 
   baish_session_init
 
-  if [[ -z "$line" || "$line" =~ ^[[:space:]]+$ ]]; then
+  if baish_text_is_blank "$line"; then
     return 0
   fi
 
@@ -463,7 +498,7 @@ baish_process_input_line() {
     return 0
   fi
 
-  if [[ -n "$BAISH_SLASH_REMAINING_TEXT" ]]; then
+  if ! baish_text_is_blank "$BAISH_SLASH_REMAINING_TEXT"; then
     printf 'user> %s\n' "$BAISH_SLASH_REMAINING_TEXT"
     baish_agent_run_user_message "$BAISH_SLASH_REMAINING_TEXT"
   fi
