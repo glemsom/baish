@@ -95,33 +95,33 @@ baish_context_tools_json() {
 }
 
 baish_context_skills_json() {
-  local skills_json='[]'
-  local index
+  local index skill_json
 
   baish_session_init
 
+  if (( ${#BAISH_SESSION_SKILL_NAMES[@]} == 0 )); then
+    printf '[]\n'
+    return 0
+  fi
+
   for index in "${!BAISH_SESSION_SKILL_NAMES[@]}"; do
-    skills_json="$(jq -cn \
-      --argjson skills "$skills_json" \
+    skill_json="$(jq -cn \
       --arg name "${BAISH_SESSION_SKILL_NAMES[$index]}" \
       --arg content "${BAISH_SESSION_SKILL_CONTENTS[$index]}" \
-      '$skills + [{name: $name, content: $content}]')" || return 1
-  done
-
-  printf '%s\n' "$skills_json"
+      '{name: $name, content: $content}')" || return 1
+    printf '%s\n' "$skill_json"
+  done | jq -cs '.'
 }
 
 baish_context_messages_json() {
-  local messages_json='[]'
-  local message_json
-
   baish_session_init
 
-  for message_json in "${BAISH_SESSION_MESSAGES[@]}"; do
-    messages_json="$(jq -cn --argjson messages "$messages_json" --argjson message "$message_json" '$messages + [$message]')" || return 1
-  done
+  if (( ${#BAISH_SESSION_MESSAGES[@]} == 0 )); then
+    printf '[]\n'
+    return 0
+  fi
 
-  printf '%s\n' "$messages_json"
+  printf '%s\n' "${BAISH_SESSION_MESSAGES[@]}" | jq -cs '.'
 }
 
 baish_context_stable_prefix_json() {
@@ -138,13 +138,14 @@ baish_context_stable_prefix_json() {
   system_prompt="$(baish_context_base_system_prompt)" || return 1
   tool_use_instructions="$(baish_context_tool_use_instructions)" || return 1
 
-  jq -cn \
+  printf '%s\n%s\n' "$tools_json" "$skills_json" | jq -cn \
     --arg model "$model" \
     --arg system_prompt "$system_prompt" \
-    --argjson tools "$tools_json" \
     --arg tool_use_instructions "$tool_use_instructions" \
-    --argjson skills "$skills_json" \
-    '{model: $model, system_prompt: $system_prompt, tools: $tools, tool_use_instructions: $tool_use_instructions, skills: $skills}'
+    '[inputs] as $parts
+     | ($parts[0]) as $tools
+     | ($parts[1]) as $skills
+     | {model: $model, system_prompt: $system_prompt, tools: $tools, tool_use_instructions: $tool_use_instructions, skills: $skills}'
 }
 
 baish_context_build_request_json() {
@@ -158,5 +159,5 @@ baish_context_build_request_json() {
 
   stable_prefix_json="$(baish_context_stable_prefix_json "$model")" || return 1
 
-  jq -cn --argjson stable_prefix "$stable_prefix_json" --argjson messages "$messages_json" '$stable_prefix + {messages: $messages}'
+  printf '%s\n%s\n' "$stable_prefix_json" "$messages_json" | jq -cn '[inputs] as $parts | $parts[0] + {messages: $parts[1]}'
 }

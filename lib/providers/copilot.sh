@@ -165,12 +165,12 @@ provider_copilot_http_request() {
     curl_args+=(-H "$header_line")
   done < <(jq -r 'to_entries[] | "\(.key): \(.value)"' <<<"$headers_json")
 
-  if [[ -n "$body" ]]; then
-    curl_args+=(--data "$body")
-  fi
-
   curl_status=0
-  curl "${curl_args[@]}" "$url" || curl_status=$?
+  if [[ -n "$body" ]]; then
+    curl "${curl_args[@]}" --data-binary @- "$url" <<<"$body" || curl_status=$?
+  else
+    curl "${curl_args[@]}" "$url" || curl_status=$?
+  fi
   finished_at="$(date +%s%3N)"
 
   BAISH_COPILOT_HTTP_BODY="$(<"$body_file")"

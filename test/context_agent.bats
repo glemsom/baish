@@ -75,6 +75,27 @@ strip_ansi() {
   [ "$(jq -c 'keys_unsorted' <<<"$request_one")" = '["model","system_prompt","tools","tool_use_instructions","skills","messages"]' ]
 }
 
+@test "context JSON builders handle conversations larger than ARG_MAX" {
+  local arg_max chunk_size message_count large_chunk messages_json request_json
+
+  arg_max="$(getconf ARG_MAX)"
+  chunk_size=65536
+  message_count=$(( arg_max / chunk_size + 2 ))
+  printf -v large_chunk '%*s' "$chunk_size" ''
+  large_chunk="${large_chunk// /x}"
+
+  for ((i = 0; i < message_count; i++)); do
+    baish_agent_append_user_message "$large_chunk"
+  done
+
+  messages_json="$(baish_context_messages_json)"
+  request_json="$(baish_context_build_request_json 'mock-tools' "$messages_json")"
+
+  [ "$(jq -r 'length' <<<"$messages_json")" = "$message_count" ]
+  [ "$(jq -r '.messages | length' <<<"$request_json")" = "$message_count" ]
+  [ "$(jq -r '.[0].content | length' <<<"$messages_json")" = "$chunk_size" ]
+}
+
 @test "tool call summarizer formats read edit write and bash previews" {
   local read_summary edit_summary write_summary bash_summary
 
