@@ -36,15 +36,13 @@ baish_startup_use_color() {
 baish_startup_color() {
   local style="$1"
 
-  if baish_startup_use_color; then
-    case "$style" in
-      bold) printf '\033[1m' ;;
-      cyan) printf '\033[36m' ;;
-      green) printf '\033[32m' ;;
-      dim) printf '\033[2m' ;;
-      reset) printf '\033[0m' ;;
-    esac
-  fi
+  case "$style" in
+    bold) printf '\033[1m' ;;
+    cyan) printf '\033[36m' ;;
+    green) printf '\033[32m' ;;
+    dim) printf '\033[2m' ;;
+    reset) printf '\033[0m' ;;
+  esac
 }
 
 baish_startup_print_header() {
