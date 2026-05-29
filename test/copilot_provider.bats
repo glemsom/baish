@@ -391,6 +391,33 @@ capture_output() {
   [ -n "$policy_request" ]
 }
 
+@test "copilot responses payload flattens prior tool calls out of assistant message content" {
+  local request_json payload_json
+
+  request_json='{
+    "model":"gpt-5.4",
+    "system_prompt":"You are BAISH.",
+    "tool_use_instructions":"Use tools structurally.",
+    "skills":[],
+    "tools":[{"name":"read","description":"Read a file.","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}],
+    "messages":[
+      {"role":"user","content":"Inspect CONTEXT.md"},
+      {"role":"assistant","content":null,"tool_calls":[{"id":"call-5","name":"read","arguments":{"path":"CONTEXT.md","offset":1,"limit":0}}]},
+      {"role":"tool","tool_call_id":"call-5","name":"read","result":{"ok":true,"tool":"read","data":{"path":"CONTEXT.md","content":"example","offset":1,"limit":0,"line_count":1}}}
+    ]
+  }'
+
+  payload_json="$(provider_copilot_build_responses_payload_json "$request_json")"
+
+  [ "$(jq -r '.input[2].role' <<<"$payload_json")" = 'user' ]
+  [ "$(jq -r '.input[3].type' <<<"$payload_json")" = 'function_call' ]
+  [ "$(jq -r '.input[3].call_id' <<<"$payload_json")" = 'call-5' ]
+  [ "$(jq -r '.input[3].name' <<<"$payload_json")" = 'read' ]
+  [ "$(jq -r '.input[4].type' <<<"$payload_json")" = 'function_call_output' ]
+  [ "$(jq -r '.input[4].call_id' <<<"$payload_json")" = 'call-5' ]
+  [ "$(jq -r '[.input[] | select(.role? == "assistant") | .content[]?.type] | any(. == "function_call")' <<<"$payload_json")" = 'false' ]
+}
+
 @test "copilot claude models use anthropic messages api" {
   local auth_json request_json response_json payload_json anth_headers policy_request
 

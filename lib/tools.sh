@@ -113,8 +113,8 @@ baish_tool_read_json() {
 
   if [[ -n "$limit" ]]; then
     if (( limit == 0 )); then
-      content_json='""'
-      line_count=0
+      content_json="$(sed -n "${offset},\$p" -- "$path" | jq -Rs '.')" || return 1
+      line_count="$(sed -n "${offset},\$p" -- "$path" | awk 'END { print NR + 0 }')" || return 1
     else
       end_line=$(( offset + limit - 1 ))
       content_json="$(sed -n "${offset},${end_line}p" -- "$path" | jq -Rs '.')" || return 1

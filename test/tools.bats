@@ -42,6 +42,18 @@ setup() {
   [ "$(jq -r '.data.line_count' <<<"$output")" = '1' ]
 }
 
+@test "read treats limit zero as read-to-end" {
+  printf 'one\ntwo\nthree\n' >"$TEST_PROJECT/read-to-end.txt"
+
+  run baish_tool_read_json "$(jq -cn --arg path "$TEST_PROJECT/read-to-end.txt" '{path: $path, offset: 2, limit: 0}')"
+
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.data.content' <<<"$output")" = $'two\nthree' ]
+  [ "$(jq -r '.data.offset' <<<"$output")" = '2' ]
+  [ "$(jq -r '.data.limit' <<<"$output")" = '0' ]
+  [ "$(jq -r '.data.line_count' <<<"$output")" = '2' ]
+}
+
 @test "read rejects directories and binary files" {
   mkdir -p "$TEST_PROJECT/dir"
   printf 'text\0binary' >"$TEST_PROJECT/binary.bin"

@@ -1042,8 +1042,8 @@ provider_copilot_build_responses_payload_json() {
     def text_message(role; text):
       {role: role, content: [{type: "input_text", text: text}]};
 
-    def assistant_content:
-      ((if .content == null then [] else [{type: "output_text", text: .content}] end)
+    def assistant_items:
+      ((if .content == null then [] else [{role: "assistant", content: [{type: "output_text", text: .content}]}] end)
       + ((.tool_calls // []) | map({
           type: "function_call",
           call_id: .id,
@@ -1051,17 +1051,17 @@ provider_copilot_build_responses_payload_json() {
           arguments: (.arguments | tojson)
         })));
 
-    def map_message:
+    def message_items:
       if .role == "assistant" then
-        {role: "assistant", content: assistant_content}
+        assistant_items
       elif .role == "tool" then
-        {
+        [{
           type: "function_call_output",
           call_id: .tool_call_id,
           output: (.result | tojson)
-        }
+        }]
       else
-        text_message(.role; .content)
+        [text_message(.role; .content)]
       end;
 
     {
@@ -1082,7 +1082,7 @@ provider_copilot_build_responses_payload_json() {
           text_message("system"; $request.tool_use_instructions)
         ]
         + (($request.skills // []) | map(text_message("system"; ("Loaded skill: " + .name + "\n" + .content))))
-        + (($request.messages // []) | map(map_message))
+        + [(($request.messages // [])[] | message_items[])]
       )
     }
   '
