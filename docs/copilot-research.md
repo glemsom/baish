@@ -2,392 +2,235 @@
 
 Last updated: 2026-05-29
 
-This note records the current Copilot behavior that Phase 7 implementation in BAISH is based on.
-
-## Sources used
-
-1. Live unauthenticated endpoint probes with `curl`
-2. Official npm packages:
-   - `@github/copilot` `1.0.55`
-   - `@vscode/copilot-api` `0.4.3`
-3. GitHub OAuth device-flow docs:
-   - `https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow`
+This note records the Copilot behavior BAISH now follows, based on the repository research captured in `../COPILOT.md`.
 
 ## Summary
 
-- Copilot auth still starts with GitHub OAuth device flow.
-- The current official Copilot CLI package uses:
-  - client id: `Ov23ctDVkRmgkPke0Mmm`
-  - scope: `read:user,read:org,repo,gist`
-- After obtaining a GitHub OAuth token, official clients exchange it at:
-  - `GET https://api.github.com/copilot_internal/v2/token`
-- Current Copilot API base remains:
-  - `https://api.githubcopilot.com`
-- Model listing endpoint remains:
-  - `GET https://api.githubcopilot.com/models`
-- Chat endpoint remains:
-  - `POST https://api.githubcopilot.com/chat/completions`
-- Official packages treat the chat/model API as OpenAI-compatible enough to use:
-  - `messages`
-  - `tools`
-  - `tool_choice`
-  - `parallel_tool_calls`
-  - `tool_calls`
-  - `stream: false`
+BAISH now mirrors the `pi` Copilot flow more closely:
 
-## Device code authentication
+1. GitHub OAuth device flow, or an env-supplied GitHub token input
+2. GitHub token exchange at `GET /copilot_internal/v2/token`
+3. Runtime Copilot API base derived from the returned Copilot token
+4. Model-family routing to one of:
+   - `/chat/completions`
+   - `/responses`
+   - `/v1/messages`
 
-### Endpoint
+BAISH still keeps one deliberate difference from `pi`: no streaming yet.
 
-Official CLI package (`@github/copilot` `1.0.55`) contains:
+## Authentication flow
 
-- `/login/device/code`
-- `/login/oauth/access_token`
-- client id `Ov23ctDVkRmgkPke0Mmm`
-- scope `read:user,read:org,repo,gist`
+### Device flow
 
-### Request shape
+BAISH uses the same device-flow inputs described in `COPILOT.md`:
 
-Device code request:
+- device-code endpoint: `POST https://github.com/login/device/code`
+- access-token poll endpoint: `POST https://github.com/login/oauth/access_token`
+- client id: `Iv1.b507a08c87ecfe98`
+- scope: `read:user`
+- user agent: `GitHubCopilotChat/0.35.0`
 
-```http
-POST https://github.com/login/device/code
-Content-Type: application/x-www-form-urlencoded
-Accept: application/json
+### Env-token path
 
-client_id=Ov23ctDVkRmgkPke0Mmm&scope=read:user,read:org,repo,gist
-```
+When one of these env vars is present, BAISH skips the interactive device prompt:
 
-Polling request:
+1. `COPILOT_GITHUB_TOKEN`
+2. `GH_TOKEN`
+3. `GITHUB_TOKEN`
 
-```http
-POST https://github.com/login/oauth/access_token
-Content-Type: application/x-www-form-urlencoded
-Accept: application/json
+Important: these env vars are treated as GitHub-token inputs, not as direct runtime Copilot bearer tokens. BAISH still exchanges them at `/copilot_internal/v2/token` before listing models or sending chat requests.
 
-client_id=Ov23ctDVkRmgkPke0Mmm&device_code=<device_code>&grant_type=urn:ietf:params:oauth:grant-type:device_code
-```
+### GitHub token -> Copilot token exchange
 
-### Response shape
-
-Device code response follows GitHub OAuth device flow docs:
-
-```json
-{
-  "device_code": "...",
-  "user_code": "ABCD-EFGH",
-  "verification_uri": "https://github.com/login/device",
-  "expires_in": 900,
-  "interval": 5
-}
-```
-
-Polling response is either a token:
-
-```json
-{
-  "access_token": "gho_...",
-  "token_type": "bearer",
-  "scope": "read:user,read:org,repo,gist"
-}
-```
-
-or one of the documented device-flow errors:
-
-- `authorization_pending`
-- `slow_down`
-- `access_denied`
-- `expired_token` / `token_expired`
-
-## GitHub token -> Copilot token exchange
-
-### Endpoint
+BAISH exchanges the GitHub token at:
 
 ```http
 GET https://api.github.com/copilot_internal/v2/token
-Authorization: Bearer <github_oauth_token>
 Accept: application/json
+Authorization: Bearer <github_token>
+User-Agent: GitHubCopilotChat/0.35.0
+Editor-Version: vscode/1.107.0
+Editor-Plugin-Version: copilot-chat/0.35.0
+Copilot-Integration-Id: vscode-chat
 ```
 
-### Observed unauthenticated failures
+BAISH persists the GitHub token for device-flow auth, but in env-token mode it persists metadata only and does not store either the env secret or the exchanged Copilot bearer token.
 
-Without auth:
+## Runtime API base resolution
 
-```json
-{
-  "message": "Requires authentication",
-  "documentation_url": "https://docs.github.com/rest",
-  "status": "401"
-}
+BAISH no longer assumes `https://api.githubcopilot.com`.
+
+Instead it derives the runtime API base from the exchanged Copilot token by parsing the `proxy-ep=...` field, for example:
+
+```text
+tid=...;exp=...;proxy-ep=proxy.individual.githubcopilot.com;...
 ```
 
-With a fake bearer token:
+which becomes:
 
-```json
-{
-  "message": "Bad credentials",
-  "documentation_url": "https://docs.github.com/rest",
-  "status": "401"
-}
+```text
+https://api.individual.githubcopilot.com
 ```
 
-### Response shape used by current clients
+If token parsing fails, BAISH falls back to:
 
-`@vscode/copilot-api` types expose `endpoints` and `sku` on the Copilot-token payload, and current clients use this response to discover the effective Copilot API domain.
+- `https://api.individual.githubcopilot.com` for `github.com`
+- `https://copilot-api.<enterprise-host>` for enterprise hosts
 
-The BAISH implementation assumes the token response includes at least:
+## Static Copilot headers
 
-```json
-{
-  "token": "...",
-  "expires_at": 4102444800,
-  "refresh_in": 900,
-  "endpoints": {
-    "api": "https://api.githubcopilot.com"
-  },
-  "sku": "copilot_individual"
-}
-```
-
-### Confidence
-
-- `endpoints` and `sku`: strong, from official package types
-- `token` exchange endpoint: strong, from official package code and live 401 probes
-- exact full success payload: moderate; live success response was not available during implementation because no valid Copilot account token was available in this environment
-
-## Required request headers for models/chat
-
-Official `@vscode/copilot-api` adds these headers for model/chat requests:
+For runtime Copilot requests BAISH now uses the VS Code-shaped headers from the research:
 
 - `Authorization: Bearer <copilot_token>`
-- `X-GitHub-Api-Version: 2026-06-01`
-- `VScode-SessionId: <uuid>`
-- `VScode-MachineId: <uuid>`
-- `Editor-Device-Id: <uuid>`
-- `Editor-Plugin-Version: copilot-chat/<version>`
-- `Editor-Version: vscode/<version>`
-- `Copilot-Integration-Id: code-oss`
+- `User-Agent: GitHubCopilotChat/0.35.0`
+- `Editor-Version: vscode/1.107.0`
+- `Editor-Plugin-Version: copilot-chat/0.35.0`
+- `Copilot-Integration-Id: vscode-chat`
 
-BAISH mirrors this header shape conservatively for compatibility.
+## Dynamic Copilot headers
+
+For conversation requests BAISH also sends:
+
+- `X-Initiator: user|agent`
+- `Openai-Intent: conversation-edits`
+
+BAISH does not implement image support yet, so it does not currently emit `Copilot-Vision-Request`.
 
 ## Model listing
 
-### Endpoint
+BAISH lists models from the token-derived runtime base:
 
 ```http
-GET https://api.githubcopilot.com/models
+GET <api_base>/models
 Authorization: Bearer <copilot_token>
 ```
 
-### Observed unauthenticated failure
+The response is normalized to a model array and filtered by `model_picker_enabled != false`.
 
-Live probe without auth returned HTTP 400 with plain-text body:
+## Model policy enablement
 
-```text
-bad request: missing required Authorization header
-```
-
-### Response shape
-
-Official `@vscode/copilot-api` types model this as an array of objects with fields including:
-
-```json
-{
-  "id": "gpt-4o",
-  "name": "GPT-4o",
-  "model_picker_enabled": true,
-  "supported_endpoints": ["/chat/completions"],
-  "capabilities": {
-    "supports": {
-      "tool_calls": true,
-      "parallel_tool_calls": true,
-      "streaming": true
-    }
-  }
-}
-```
-
-Important fields for BAISH:
-
-- `id`
-- `name`
-- `model_picker_enabled`
-- `capabilities.supports.tool_calls`
-- `capabilities.supports.parallel_tool_calls`
-
-## Chat completions
-
-### Endpoint
+Before chat requests BAISH now makes a best-effort enablement call that matches the researched flow:
 
 ```http
-POST https://api.githubcopilot.com/chat/completions
-Authorization: Bearer <copilot_token>
+POST <api_base>/models/{model}/policy
 Content-Type: application/json
+Authorization: Bearer <copilot_token>
+openai-intent: chat-policy
+x-interaction-type: chat-policy
+
+{"state":"enabled"}
 ```
 
-### Observed unauthenticated failure
+BAISH treats this as best-effort and lets the actual chat request surface any hard model-availability error.
 
-Live probe without auth returned HTTP 400 with plain-text body:
+## Endpoint routing by model family
 
-```text
-bad request: missing required Authorization header
+BAISH now routes by model family instead of sending everything to `/chat/completions`.
+
+### Chat completions
+
+These continue to use OpenAI chat-completions shape:
+
+- `gpt-4o`
+- `gpt-4.1`
+- Gemini families
+- Grok Code Fast families
+- any other non-`gpt-5*`, non-`claude-*` model ids
+
+Endpoint:
+
+```http
+POST <api_base>/chat/completions
 ```
 
-### Request shape
+### Responses API
 
-Current official package structure strongly suggests OpenAI-compatible chat-completions requests.
+`gpt-5*` models now use OpenAI Responses-style payloads.
 
-BAISH uses this shape:
+Endpoint:
+
+```http
+POST <api_base>/responses
+```
+
+BAISH also follows the researched defaults:
+
+- `stream: false`
+- `store: false`
+- omit `reasoning` unless explicitly requested in future work
+
+### Anthropic Messages API
+
+`claude-*` models now use Anthropic Messages-style payloads.
+
+Endpoint:
+
+```http
+POST <api_base>/v1/messages
+```
+
+BAISH still uses the Copilot bearer token and Copilot headers for these requests.
+
+## Tool calling
+
+BAISH still uses provider-native tool calling, but now across three request shapes:
+
+- chat-completions `tools` / `tool_calls`
+- responses `tools` / `function_call` / `function_call_output`
+- anthropic `tools` / `tool_use` / `tool_result`
+
+All three normalize back into BAISH's provider-neutral response shape:
 
 ```json
 {
-  "model": "gpt-4o",
-  "stream": false,
-  "tool_choice": "auto",
-  "parallel_tool_calls": true,
-  "tools": [
-    {
-      "type": "function",
-      "function": {
-        "name": "read",
-        "description": "Read a file.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "path": {"type": "string"}
-          },
-          "required": ["path"],
-          "additionalProperties": false
-        }
-      }
-    }
-  ],
-  "messages": [
-    {"role": "system", "content": "..."},
-    {"role": "user", "content": "Inspect idea.md"}
-  ]
-}
-```
-
-### Response shape
-
-BAISH normalizes an OpenAI-style response of this form:
-
-```json
-{
-  "choices": [
-    {
-      "message": {
-        "content": null,
-        "tool_calls": [
-          {
-            "id": "call-1",
-            "type": "function",
-            "function": {
-              "name": "read",
-              "arguments": "{\"path\":\"idea.md\"}"
-            }
-          }
-        ]
-      }
-    }
-  ]
-}
-```
-
-into BAISH's provider-neutral response:
-
-```json
-{
-  "assistant_text": null,
+  "assistant_text": "... or null",
   "tool_calls": [
     {
-      "id": "call-1",
-      "name": "read",
-      "arguments": {
-        "path": "idea.md"
-      }
+      "id": "...",
+      "name": "...",
+      "arguments": {}
     }
   ]
 }
 ```
 
-## Tool/function calling support
+## Streaming
 
-### What is verified
+`pi` supports streaming, but BAISH still does not. Every BAISH Copilot request is non-streaming for now.
 
-- Official model types include:
-  - `tool_calls: true`
-  - `parallel_tool_calls: true`
-- Official packages target `/chat/completions` and expose OpenAI-style tool-call-related capabilities.
-- BAISH request/response normalization matches that shape.
+## What changed from the previous BAISH research
 
-### What is still unverified live
+The earlier BAISH note assumed the newer official CLI-style flow:
 
-Because no valid Copilot subscription token was available during implementation, I could not complete a live authenticated tool-call round trip against the production endpoint.
+- client id `Ov23ctDVkRmgkPke0Mmm`
+- broader OAuth scope
+- fixed runtime base `https://api.githubcopilot.com`
+- single `/chat/completions` inference path
+- direct env-token bearer mode
 
-So, for V1:
+That is no longer the documented BAISH approach.
 
-- request shape is strongly inferred from official packages
-- live unauthenticated endpoint existence is confirmed
-- live authenticated tool-call execution remains a known risk
+BAISH now follows the `pi`-researched flow instead:
 
-## Non-streaming support
+- client id `Iv1.b507a08c87ecfe98`
+- scope `read:user`
+- token-derived runtime base
+- `/chat/completions`, `/responses`, and `/v1/messages`
+- env tokens still go through the GitHub-to-Copilot token exchange
 
-Official package capabilities include `streaming`, but the chat endpoint remains usable in standard chat-completions mode and BAISH explicitly sends:
+## Verification status
 
-```json
-{"stream": false}
-```
+What is covered in-repo:
 
-This keeps Phase 7 aligned with the V1 plan: no streaming.
+- shell-level tests for the auth flow
+- shell-level tests for token-derived API base selection
+- shell-level tests for env-token exchange behavior
+- shell-level tests for routing across all three inference endpoint families
+- shell-level tests for provider-native tool-call normalization
 
-## Error shapes collected so far
+What remains unverified live:
 
-### Auth failure
-
-From live probes:
-
-- GitHub token exchange without auth:
-  - HTTP 401 JSON `Requires authentication`
-- GitHub token exchange with fake auth:
-  - HTTP 401 JSON `Bad credentials`
-- Copilot models/chat without auth:
-  - HTTP 400 plain text `bad request: missing required Authorization header`
-
-### Model failure
-
-- Missing auth on `/models` is confirmed as above.
-- Authenticated-but-invalid-model failure shape was not live-tested in this environment.
-
-### Context overflow
-
-- Not live-tested against the real endpoint in this environment.
-- BAISH still treats obvious provider errors containing phrases such as `context length`, `context_length_exceeded`, `request too large`, or `prompt too large` as BAISH-level overflow failures.
-
-### Tool-call formatting errors
-
-- Not live-tested against the real endpoint in this environment.
-- Expected likely failure mode is an OpenAI-style 4xx validation error, but that remains unconfirmed.
-
-## Implementation choices in BAISH
-
-Phase 7 implementation uses:
-
-- device flow via GitHub OAuth endpoints
-- persisted plain JSON auth state in `~/.baish/auth/copilot.json`
-- GitHub-token refresh through `/copilot_internal/v2/token`
-- dynamic Copilot API base from `endpoints.api` when present
-- `/models` for model selection
-- `/chat/completions` with OpenAI-style `tools` and `tool_calls`
-- non-streaming only
-
-## Remaining risks / follow-up
-
-1. Confirm a full authenticated end-to-end chat + tool-call with a real Copilot account.
-2. Record real 4xx/5xx bodies for:
-   - invalid model id
-   - context overflow
-   - malformed tool arguments
-3. Confirm whether BAISH can keep its own editor/plugin identifiers long-term, or whether the VS Code-shaped compatibility headers need revision.
-4. Confirm the exact successful `/copilot_internal/v2/token` payload fields against a live token exchange and update this document if GitHub changes them.
+- authenticated end-to-end requests against a real Copilot account
+- exact live response bodies for malformed requests and unsupported models
+- image/vision request handling
+- streaming behavior

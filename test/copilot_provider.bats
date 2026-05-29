@@ -24,6 +24,9 @@ setup() {
   unset BAISH_ACTIVE_PROVIDER
   unset BAISH_ACTIVE_MODEL
   unset BAISH_COPILOT_SESSION_ID
+  unset COPILOT_GITHUB_TOKEN
+  unset GH_TOKEN
+  unset GITHUB_TOKEN
 
   : >"$CURL_LOG"
 
@@ -99,19 +102,28 @@ curl() {
       body='{"device_code":"device-code-123","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":0}'
       ;;
     'POST https://github.com/login/oauth/access_token')
-      body='{"access_token":"gho-test-token","token_type":"bearer","scope":"read:user,read:org,repo,gist"}'
+      body='{"access_token":"gho-test-token","token_type":"bearer","scope":"read:user"}'
       ;;
     'GET https://api.github.com/user')
       body='{"login":"octocat"}'
       ;;
     'GET https://api.github.com/copilot_internal/v2/token')
-      body='{"token":"copilot-access-token","expires_at":4102444800,"refresh_in":900,"sku":"copilot_individual","endpoints":{"api":"https://api.githubcopilot.com"}}'
+      body='{"token":"tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;","expires_at":4102444800,"refresh_in":900,"sku":"copilot_individual"}'
       ;;
-    'GET https://api.githubcopilot.com/models')
-      body='[{"id":"gpt-4o","name":"GPT-4o","model_picker_enabled":true},{"id":"claude-sonnet-4","name":"Claude Sonnet 4","model_picker_enabled":true}]'
+    'GET https://api.individual.githubcopilot.com/models')
+      body='[{"id":"gpt-4o","name":"GPT-4o","model_picker_enabled":true},{"id":"gpt-5.4","name":"GPT-5.4","model_picker_enabled":true},{"id":"claude-sonnet-4.6","name":"Claude Sonnet 4.6","model_picker_enabled":true}]'
       ;;
-    'POST https://api.githubcopilot.com/chat/completions')
+    'POST https://api.individual.githubcopilot.com/chat/completions')
       body='{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{\"path\":\"idea.md\",\"offset\":1}"}}]}}]}'
+      ;;
+    'POST https://api.individual.githubcopilot.com/responses')
+      body='{"output":[{"type":"function_call","call_id":"call-5","name":"read","arguments":"{\"path\":\"gpt5.md\"}"}]}'
+      ;;
+    'POST https://api.individual.githubcopilot.com/v1/messages')
+      body='{"content":[{"type":"text","text":"Claude says hi."},{"type":"tool_use","id":"call-claude","name":"read","input":{"path":"claude.md"}}]}'
+      ;;
+    POST\ https://api.individual.githubcopilot.com/models/*/policy)
+      body='{"state":"enabled"}'
       ;;
     *)
       status='404'
@@ -159,10 +171,7 @@ capture_output() {
   [ "$(provider_copilot_default_host)" = 'https://github.com' ]
 }
 
-@test "copilot env token helpers prefer GH_TOKEN over GITHUB_TOKEN" {
-  unset GH_TOKEN
-  unset GITHUB_TOKEN
-
+@test "copilot env token helpers prefer COPILOT_GITHUB_TOKEN then GH_TOKEN then GITHUB_TOKEN" {
   run provider_copilot_has_env_token
   [ "$status" -ne 0 ]
 
@@ -173,6 +182,10 @@ capture_output() {
   GH_TOKEN='gh-token'
   [ "$(provider_copilot_env_token_name)" = 'GH_TOKEN' ]
   [ "$(provider_copilot_env_token_value)" = 'gh-token' ]
+
+  COPILOT_GITHUB_TOKEN='copilot-github-token'
+  [ "$(provider_copilot_env_token_name)" = 'COPILOT_GITHUB_TOKEN' ]
+  [ "$(provider_copilot_env_token_value)" = 'copilot-github-token' ]
 
   provider_copilot_has_env_token
 }
@@ -192,8 +205,8 @@ capture_output() {
   [ "$(jq -r '.host' "$auth_file")" = 'https://github.com' ]
   [ "$(jq -r '.login' "$auth_file")" = 'octocat' ]
   [ "$(jq -r '.github_token' "$auth_file")" = 'gho-test-token' ]
-  [ "$(jq -r '.copilot_token' "$auth_file")" = 'copilot-access-token' ]
-  [ "$(jq -r '.endpoints.api' "$auth_file")" = 'https://api.githubcopilot.com' ]
+  [ "$(jq -r '.copilot_token' "$auth_file")" = 'tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;' ]
+  [ "$(jq -r '.api_base' "$auth_file")" = 'https://api.individual.githubcopilot.com' ]
   [ -n "$(jq -r '.machine_id' "$auth_file")" ]
   [ -n "$(jq -r '.device_id' "$auth_file")" ]
 }
@@ -211,7 +224,7 @@ capture_output() {
   [[ "$CAPTURE_OUTPUT" == *'This usually means the GitHub account does not have Copilot access on that host, or the wrong GitHub host is configured.'* ]]
 }
 
-@test "copilot github REST calls use minimal auth headers" {
+@test "copilot github user call stays minimal and token exchange uses copilot client headers" {
   local auth_json user_headers token_headers
 
   auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","machine_id":"machine-1","device_id":"device-1"}'
@@ -224,19 +237,16 @@ capture_output() {
 
   [[ "$user_headers" == *'Accept: application/json'* ]]
   [[ "$user_headers" == *'Authorization: Bearer gho-test-token'* ]]
-  [[ "$user_headers" == *'User-Agent: BAISH/0.1'* ]]
-  [[ "$user_headers" != *'VScode-MachineId:'* ]]
-  [[ "$user_headers" != *'Editor-Device-Id:'* ]]
-  [[ "$user_headers" != *'X-GitHub-Api-Version:'* ]]
+  [[ "$user_headers" == *'User-Agent: GitHubCopilotChat/0.35.0'* ]]
   [[ "$user_headers" != *'Editor-Version:'* ]]
+  [[ "$user_headers" != *'Copilot-Integration-Id:'* ]]
 
   [[ "$token_headers" == *'Accept: application/json'* ]]
   [[ "$token_headers" == *'Authorization: Bearer gho-test-token'* ]]
-  [[ "$token_headers" == *'User-Agent: BAISH/0.1'* ]]
-  [[ "$token_headers" != *'VScode-MachineId:'* ]]
-  [[ "$token_headers" != *'Editor-Device-Id:'* ]]
-  [[ "$token_headers" != *'X-GitHub-Api-Version:'* ]]
-  [[ "$token_headers" != *'Editor-Version:'* ]]
+  [[ "$token_headers" == *'User-Agent: GitHubCopilotChat/0.35.0'* ]]
+  [[ "$token_headers" == *'Editor-Version: vscode/1.107.0'* ]]
+  [[ "$token_headers" == *'Editor-Plugin-Version: copilot-chat/0.35.0'* ]]
+  [[ "$token_headers" == *'Copilot-Integration-Id: vscode-chat'* ]]
 }
 
 @test "connect authenticates copilot and persists the selected model" {
@@ -255,57 +265,57 @@ capture_output() {
   [ "$(jq -r '.selected_model' "$state_file")" = 'gpt-4o' ]
 }
 
-@test "connect uses env token auth and skips device flow" {
-  local auth_file state_file user_headers model_headers token_refresh_requests
+@test "connect uses env github token auth but still exchanges for a copilot token" {
+  local auth_file state_file user_headers token_headers model_headers
 
-  GH_TOKEN='ghu-env-token'
+  COPILOT_GITHUB_TOKEN='ghu-env-token'
 
   capture_output 'baish_connect_current_provider'
   auth_file="$TEST_HOME/.baish/auth/copilot.json"
   state_file="$TEST_HOME/.baish/state.json"
   user_headers="$(jq -c 'select(.url == "https://api.github.com/user") | .headers' "$CURL_LOG")"
-  model_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/models") | .headers' "$CURL_LOG")"
-  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+  token_headers="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token") | .headers' "$CURL_LOG")"
+  model_headers="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/models") | .headers' "$CURL_LOG")"
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT" == *'Using Copilot auth from GH_TOKEN.'* ]]
+  [[ "$CAPTURE_OUTPUT" == *'Using Copilot GitHub token from COPILOT_GITHUB_TOKEN.'* ]]
   [[ "$CAPTURE_OUTPUT" == *'Copilot authorization completed for octocat.'* ]]
   [[ "$CAPTURE_OUTPUT" == *'Selected model: gpt-4o'* ]]
   [[ "$CAPTURE_OUTPUT" != *'To connect Copilot, visit '* ]]
   [ -f "$auth_file" ]
   [ -f "$state_file" ]
   [ "$(jq -r '.auth_source' "$auth_file")" = 'env' ]
-  [ "$(jq -r '.auth_env_var' "$auth_file")" = 'GH_TOKEN' ]
+  [ "$(jq -r '.auth_env_var' "$auth_file")" = 'COPILOT_GITHUB_TOKEN' ]
   [ "$(jq -r '.host' "$auth_file")" = 'https://github.com' ]
   [ "$(jq -r '.login' "$auth_file")" = 'octocat' ]
   [ "$(jq -r '.github_token // empty' "$auth_file")" = '' ]
   [ "$(jq -r '.copilot_token // empty' "$auth_file")" = '' ]
-  [ "$(jq -r '.endpoints.api' "$auth_file")" = 'https://api.githubcopilot.com' ]
+  [ "$(jq -r '.api_base' "$auth_file")" = 'https://api.individual.githubcopilot.com' ]
   [ "$(jq -r '.selected_provider' "$state_file")" = 'copilot' ]
   [ "$(jq -r '.selected_model' "$state_file")" = 'gpt-4o' ]
   [[ "$user_headers" == *'Authorization: Bearer ghu-env-token'* ]]
-  [[ "$model_headers" == *'Authorization: Bearer ghu-env-token'* ]]
-  [ -z "$token_refresh_requests" ]
+  [[ "$token_headers" == *'Authorization: Bearer ghu-env-token'* ]]
+  [[ "$model_headers" == *'Authorization: Bearer tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;'* ]]
 }
 
-@test "copilot list models uses env token directly without token refresh" {
-  local models_json model_headers token_refresh_requests
+@test "copilot list models exchanges env github token before calling the runtime api" {
+  local models_json model_headers token_headers
 
-  GITHUB_TOKEN='github-env-token'
+  GH_TOKEN='github-env-token'
   models_json="$(provider_copilot_list_models)"
-  model_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/models") | .headers' "$CURL_LOG")"
-  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+  token_headers="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token") | .headers' "$CURL_LOG")"
+  model_headers="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/models") | .headers' "$CURL_LOG")"
 
-  [ "$(jq -r 'length' <<<"$models_json")" = '2' ]
+  [ "$(jq -r 'length' <<<"$models_json")" = '3' ]
   [ "$(jq -r '.[0].id' <<<"$models_json")" = 'gpt-4o' ]
-  [[ "$model_headers" == *'Authorization: Bearer github-env-token'* ]]
-  [ -z "$token_refresh_requests" ]
+  [[ "$token_headers" == *'Authorization: Bearer github-env-token'* ]]
+  [[ "$model_headers" == *'Authorization: Bearer tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;'* ]]
 }
 
-@test "copilot chat uses OpenAI-style tool payloads and normalizes tool calls" {
-  local auth_json request_json response_json payload_json
+@test "copilot chat uses chat-completions payloads and normalizes tool calls" {
+  local auth_json request_json response_json payload_json chat_headers policy_request
 
-  auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","copilot_token":"copilot-access-token","copilot_token_expires_at":4102444800,"machine_id":"machine-1","device_id":"device-1","endpoints":{"api":"https://api.githubcopilot.com"}}'
+  auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","copilot_token":"tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;","copilot_token_expires_at":4102444800,"api_base":"https://api.individual.githubcopilot.com","machine_id":"machine-1","device_id":"device-1"}'
   baish_state_write_auth_json 'copilot' "$auth_json"
 
   request_json='{
@@ -318,7 +328,9 @@ capture_output() {
   }'
 
   response_json="$(provider_copilot_chat "$request_json")"
-  payload_json="$(jq -r 'select(.url == "https://api.githubcopilot.com/chat/completions") | .data' "$CURL_LOG")"
+  payload_json="$(jq -r 'select(.url == "https://api.individual.githubcopilot.com/chat/completions") | .data' "$CURL_LOG")"
+  chat_headers="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/chat/completions") | .headers' "$CURL_LOG")"
+  policy_request="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/models/gpt-4o/policy")' "$CURL_LOG")"
 
   [ "$(jq -r '.assistant_text' <<<"$response_json")" = 'null' ]
   [ "$(jq -r '.tool_calls | length' <<<"$response_json")" = '1' ]
@@ -336,30 +348,79 @@ capture_output() {
   [ "$(jq -r '.messages[1].role' <<<"$payload_json")" = 'system' ]
   [ "$(jq -r '.messages[2].content' <<<"$payload_json")" = $'Loaded skill: tdd\nWrite tests first.' ]
   [ "$(jq -r '.messages[3].role' <<<"$payload_json")" = 'user' ]
+  [[ "$chat_headers" == *'Authorization: Bearer tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;'* ]]
+  [[ "$chat_headers" == *'X-Initiator: user'* ]]
+  [[ "$chat_headers" == *'Openai-Intent: conversation-edits'* ]]
+  [ -n "$policy_request" ]
 }
 
-@test "copilot chat uses env token directly in env-token mode" {
-  local auth_json request_json response_json chat_headers token_refresh_requests
+@test "copilot gpt-5 uses responses api without reasoning by default" {
+  local auth_json request_json response_json payload_json response_headers policy_request
 
-  GH_TOKEN='ghu-env-token'
-  auth_json='{"provider":"copilot","auth_source":"env","auth_env_var":"GH_TOKEN","host":"https://github.com","machine_id":"machine-1","device_id":"device-1","endpoints":{"api":"https://api.githubcopilot.com"}}'
+  auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","copilot_token":"tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;","copilot_token_expires_at":4102444800,"api_base":"https://api.individual.githubcopilot.com"}'
   baish_state_write_auth_json 'copilot' "$auth_json"
 
   request_json='{
-    "model":"gpt-4o",
+    "model":"gpt-5.4",
     "system_prompt":"You are BAISH.",
     "tool_use_instructions":"Use tools structurally.",
     "skills":[],
     "tools":[{"name":"read","description":"Read a file.","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}],
-    "messages":[{"role":"user","content":"Inspect idea.md"}]
+    "messages":[{"role":"user","content":"Inspect gpt5.md"}]
   }'
 
   response_json="$(provider_copilot_chat "$request_json")"
-  chat_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/chat/completions") | .headers' "$CURL_LOG")"
-  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+  payload_json="$(jq -r 'select(.url == "https://api.individual.githubcopilot.com/responses") | .data' "$CURL_LOG")"
+  response_headers="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/responses") | .headers' "$CURL_LOG")"
+  policy_request="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/models/gpt-5.4/policy")' "$CURL_LOG")"
 
+  [ "$(jq -r '.assistant_text' <<<"$response_json")" = 'null' ]
+  [ "$(jq -r '.tool_calls | length' <<<"$response_json")" = '1' ]
+  [ "$(jq -r '.tool_calls[0].id' <<<"$response_json")" = 'call-5' ]
   [ "$(jq -r '.tool_calls[0].name' <<<"$response_json")" = 'read' ]
-  [ "$(jq -r '.tool_calls[0].arguments.path' <<<"$response_json")" = 'idea.md' ]
-  [[ "$chat_headers" == *'Authorization: Bearer ghu-env-token'* ]]
-  [ -z "$token_refresh_requests" ]
+  [ "$(jq -r '.tool_calls[0].arguments.path' <<<"$response_json")" = 'gpt5.md' ]
+
+  [ "$(jq -r '.stream' <<<"$payload_json")" = 'false' ]
+  [ "$(jq -r '.store' <<<"$payload_json")" = 'false' ]
+  [ "$(jq -r '.parallel_tool_calls' <<<"$payload_json")" = 'true' ]
+  [ "$(jq -r '.tools[0].name' <<<"$payload_json")" = 'read' ]
+  [ "$(jq -r '.input[0].role' <<<"$payload_json")" = 'system' ]
+  [ "$(jq -r '.input[-1].role' <<<"$payload_json")" = 'user' ]
+  [ "$(jq -r 'has("reasoning")' <<<"$payload_json")" = 'false' ]
+  [[ "$response_headers" == *'X-Initiator: user'* ]]
+  [ -n "$policy_request" ]
+}
+
+@test "copilot claude models use anthropic messages api" {
+  local auth_json request_json response_json payload_json anth_headers policy_request
+
+  auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","copilot_token":"tid=test;exp=4102444800;proxy-ep=proxy.individual.githubcopilot.com;","copilot_token_expires_at":4102444800,"api_base":"https://api.individual.githubcopilot.com"}'
+  baish_state_write_auth_json 'copilot' "$auth_json"
+
+  request_json='{
+    "model":"claude-sonnet-4.6",
+    "system_prompt":"You are BAISH.",
+    "tool_use_instructions":"Use tools structurally.",
+    "skills":[],
+    "tools":[{"name":"read","description":"Read a file.","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}],
+    "messages":[{"role":"user","content":"Inspect claude.md"}]
+  }'
+
+  response_json="$(provider_copilot_chat "$request_json")"
+  payload_json="$(jq -r 'select(.url == "https://api.individual.githubcopilot.com/v1/messages") | .data' "$CURL_LOG")"
+  anth_headers="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/v1/messages") | .headers' "$CURL_LOG")"
+  policy_request="$(jq -c 'select(.url == "https://api.individual.githubcopilot.com/models/claude-sonnet-4.6/policy")' "$CURL_LOG")"
+
+  [ "$(jq -r '.assistant_text' <<<"$response_json")" = 'Claude says hi.' ]
+  [ "$(jq -r '.tool_calls | length' <<<"$response_json")" = '1' ]
+  [ "$(jq -r '.tool_calls[0].id' <<<"$response_json")" = 'call-claude' ]
+  [ "$(jq -r '.tool_calls[0].name' <<<"$response_json")" = 'read' ]
+  [ "$(jq -r '.tool_calls[0].arguments.path' <<<"$response_json")" = 'claude.md' ]
+
+  [ "$(jq -r '.stream' <<<"$payload_json")" = 'false' ]
+  [ "$(jq -r '.max_tokens' <<<"$payload_json")" = '32000' ]
+  [ "$(jq -r '.tools[0].name' <<<"$payload_json")" = 'read' ]
+  [ "$(jq -r '.messages[0].role' <<<"$payload_json")" = 'user' ]
+  [[ "$anth_headers" == *'Openai-Intent: conversation-edits'* ]]
+  [ -n "$policy_request" ]
 }

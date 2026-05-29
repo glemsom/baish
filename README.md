@@ -53,10 +53,11 @@ Typical first-run flow with Copilot:
 
 1. Start BAISH.
 2. Run `/connect`.
-3. If `GH_TOKEN` or `GITHUB_TOKEN` is set, BAISH uses it directly for Copilot auth.
-4. Otherwise, follow the device-flow instructions in the terminal.
-5. Pick a model through `fzf`.
-6. Enter a normal prompt.
+3. If `COPILOT_GITHUB_TOKEN` is set, BAISH uses it as the GitHub token input to the normal Copilot token-exchange flow.
+4. Otherwise, BAISH falls back to `GH_TOKEN`, then `GITHUB_TOKEN`, with the same exchange flow.
+5. If no env token is set, follow the device-flow instructions in the terminal.
+6. Pick a model through `fzf`.
+7. Enter a normal prompt.
 
 Example:
 
@@ -155,8 +156,9 @@ BAISH uses environment variables for configuration in V1.
 
 - `BAISH_PROVIDER` — active provider, default `copilot`
 - `BAISH_MODEL` — process-local model override; wins over the persisted model
-- `GH_TOKEN` — preferred direct GitHub Copilot bearer token for `/connect`, `/model`, and chat
-- `GITHUB_TOKEN` — fallback direct GitHub Copilot bearer token when `GH_TOKEN` is unset
+- `COPILOT_GITHUB_TOKEN` — preferred GitHub token input for Copilot `/connect`, `/model`, and chat; BAISH exchanges it for a runtime Copilot token
+- `GH_TOKEN` — fallback GitHub token input when `COPILOT_GITHUB_TOKEN` is unset
+- `GITHUB_TOKEN` — fallback GitHub token input when `COPILOT_GITHUB_TOKEN` and `GH_TOKEN` are unset
 - `BAISH_MAX_TOOL_ROUNDS` — max tool rounds per request, default `20`
 - `BAISH_MAX_TOOL_CALLS` — max tool calls per request, default `100`
 - `BAISH_BASH_TIMEOUT` — shell tool timeout in seconds, default `120`
@@ -167,7 +169,7 @@ Examples:
 ```bash
 BAISH_PROVIDER=mock ./bin/baish
 BAISH_MODEL=gpt-4.1 ./bin/baish
-GH_TOKEN=... ./bin/baish
+COPILOT_GITHUB_TOKEN=... ./bin/baish
 BAISH_DEBUG=1 ./bin/baish
 ```
 
@@ -190,7 +192,7 @@ Notes:
 
 - Provider auth files are plain JSON.
 - Auth/token files are written with restrictive permissions.
-- In env-token Copilot mode, BAISH persists metadata-only auth state and does not store `GH_TOKEN` or `GITHUB_TOKEN` in `~/.baish/auth/copilot.json`.
+- In env-token Copilot mode, BAISH persists metadata-only auth state and does not store `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, or the exchanged Copilot bearer token in `~/.baish/auth/copilot.json`.
 - `logs/` is only created when `BAISH_DEBUG=1`.
 - Debug logs are metadata-only and do not persist full transcripts by default.
 
@@ -212,10 +214,12 @@ bash -n bin/baish lib/*.sh lib/providers/*.sh test/test_helper.bash
 
 Copilot support in V1 follows the research documented in `docs/copilot-research.md`:
 
-- direct env-token auth via `GH_TOKEN` or `GITHUB_TOKEN`
-- interactive device-flow auth when env tokens are absent
+- GitHub device flow or env-supplied GitHub token input, both followed by `/copilot_internal/v2/token`
+- runtime Copilot API base derived from the exchanged token
 - persisted auth state under `~/.baish/auth/`
 - interactive model selection through `fzf`
+- model-family routing across `/chat/completions`, `/responses`, and `/v1/messages`
+- best-effort model policy enablement before chat
 - non-streaming chat
 - provider-native tool/function calling
 
