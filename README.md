@@ -98,6 +98,7 @@ The mock provider is intended for local development, Bats coverage, and agent-lo
 Supported slash commands:
 
 - `/connect` — authenticate/connect the active provider and choose a model
+- `/new` — start a fresh chat by clearing the current conversation messages while keeping the current connection, model, and loaded skills
 - `/model` — choose a model interactively with `fzf`
 - `/skill:<name>` — load a skill into the current BAISH process
 - `/quit` — exit BAISH
@@ -120,7 +121,7 @@ Not supported in V1:
 Multiple slash commands can prefix one chat message:
 
 ```text
-/skill:tdd /skill:pirate Fix the auth error handling.
+/new /skill:tdd /skill:pirate Fix the auth error handling.
 ```
 
 BAISH processes slash commands from left to right, then sends any remaining text as the user message.

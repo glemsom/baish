@@ -77,6 +77,26 @@ setup() {
   [ "${BAISH_SLASH_COMMANDS[0]}" = 'quit' ]
 }
 
+@test "/new resets only the conversation messages" {
+  local output status
+
+  mkdir -p "$TEST_PROJECT/.baish/skills"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
+
+  baish_skill_load 'tdd'
+  BAISH_SESSION_MESSAGES+=('{"role":"user","content":"first"}')
+  BAISH_SESSION_MESSAGES+=('{"role":"assistant","content":"second"}')
+
+  output="$(baish_slash_execute_command 'new')"
+  status=$?
+
+  [ "$status" -eq 0 ]
+  [ "$output" = 'Started new chat.' ]
+  [ "${#BAISH_SESSION_MESSAGES[@]}" -eq 0 ]
+  [ "${#BAISH_SESSION_SKILL_NAMES[@]}" -eq 1 ]
+  [ "${BAISH_SESSION_SKILL_NAMES[0]}" = 'tdd' ]
+}
+
 @test "skill loading prefers project-local skills, falls back to user skills, and stays idempotent" {
   mkdir -p "$TEST_PROJECT/.baish/skills" "$TEST_HOME/.baish/skills"
   printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
@@ -108,6 +128,8 @@ setup() {
     cd "$3"
     baish_state_init
     baish_session_reset
+    baish_slash_completion_candidates "/n" 2
+    printf -- "--\n"
     baish_slash_completion_candidates "/sk" 3
     printf -- "--\n"
     baish_slash_completion_candidates "/skill:t" 8
@@ -116,7 +138,7 @@ setup() {
   ' bash "$REPO_ROOT" "$TEST_HOME" "$TEST_PROJECT"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == $'/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
+  [[ "$output" == $'/new\n--\n/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
 }
 
 @test "readline bindings install without line editing warnings" {

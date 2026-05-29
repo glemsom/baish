@@ -17,6 +17,11 @@ baish_session_init() {
   fi
 }
 
+baish_session_reset_context_window() {
+  declare -ga BAISH_SESSION_MESSAGES=()
+  printf 'Started new chat.\n'
+}
+
 baish_slash_parse_reset() {
   declare -ga BAISH_SLASH_COMMANDS=()
   declare -ga BAISH_SLASH_ARGS=()
@@ -43,6 +48,10 @@ baish_slash_parse_token() {
       ;;
     /quit|/exit)
       BAISH_SLASH_TOKEN_COMMAND='quit'
+      return 0
+      ;;
+    /new)
+      BAISH_SLASH_TOKEN_COMMAND='new'
       return 0
       ;;
     /model)
@@ -357,7 +366,7 @@ baish_slash_completion_candidates() {
   local line="$1"
   local point="${2:-${#1}}"
   local before_cursor current_token prefix_context skill_name
-  local -a command_candidates=(/connect /quit /exit /model /skill:)
+  local -a command_candidates=(/connect /quit /exit /new /model /skill:)
 
   before_cursor="${line:0:point}"
 
@@ -404,6 +413,9 @@ baish_slash_execute_command() {
     quit)
       BAISH_SESSION_EXIT_REQUESTED=1
       return 0
+      ;;
+    new)
+      baish_session_reset_context_window
       ;;
     model)
       baish_model_select_interactive

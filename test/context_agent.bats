@@ -125,6 +125,33 @@ strip_ansi() {
   [ "$(jq -r '.selected_model' "$state_file")" = 'mock-text' ]
 }
 
+@test "/new starts a fresh chat without reconnecting" {
+  local messages_json
+
+  baish_provider_call mock auth
+  baish_state_set_selected_provider_model 'mock' 'mock-text'
+  BAISH_ACTIVE_PROVIDER='mock'
+  BAISH_ACTIVE_MODEL='mock-text'
+  export BAISH_MOCK_SCENARIO='simple_text'
+  export BAISH_MOCK_FINAL_TEXT='Mock hello.'
+
+  capture_process_input_line 'First chat'
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [ "$(jq -r 'length' <<<"$(baish_context_messages_json)")" = '2' ]
+
+  export BAISH_MOCK_FINAL_TEXT='Mock fresh chat.'
+  capture_process_input_line '/new Second chat'
+  messages_json="$(baish_context_messages_json)"
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'Started new chat.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'user> Second chat'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock fresh chat.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'Connected provider: mock'* ]]
+  [ "$(jq -r 'length' <<<"$messages_json")" = '2' ]
+  [ "$(jq -r '.[0].content' <<<"$messages_json")" = 'Second chat' ]
+}
+
 @test "agent loop renders a successful tool round and appends the structured tool result" {
   local messages_json
 
