@@ -136,6 +136,22 @@ capture_output() {
   CAPTURE_OUTPUT="$(<"$output_file")"
 }
 
+@test "copilot default host honors env overrides" {
+  BAISH_COPILOT_HOST='ghe.example.com'
+  [ "$(provider_copilot_default_host)" = 'https://ghe.example.com' ]
+
+  unset BAISH_COPILOT_HOST
+  COPILOT_GH_HOST='copilot.example.com'
+  [ "$(provider_copilot_default_host)" = 'https://copilot.example.com' ]
+
+  unset COPILOT_GH_HOST
+  GH_HOST='gh.example.com'
+  [ "$(provider_copilot_default_host)" = 'https://gh.example.com' ]
+
+  unset GH_HOST
+  [ "$(provider_copilot_default_host)" = 'https://github.com' ]
+}
+
 @test "copilot auth performs device flow and persists auth state" {
   local auth_file
 
@@ -155,6 +171,19 @@ capture_output() {
   [ "$(jq -r '.endpoints.api' "$auth_file")" = 'https://api.githubcopilot.com' ]
   [ -n "$(jq -r '.machine_id' "$auth_file")" ]
   [ -n "$(jq -r '.device_id' "$auth_file")" ]
+}
+
+@test "copilot refresh explains 404 failures" {
+  local auth_json
+
+  auth_json='{"provider":"copilot","host":"https://ghe.example.com","github_token":"gho-test-token"}'
+
+  capture_output 'provider_copilot_refresh_auth_json "$auth_json"'
+
+  [ "$CAPTURE_STATUS" -ne 0 ]
+  [[ "$CAPTURE_OUTPUT" == *'BAISH Copilot token refresh failed (HTTP 404): not found'* ]]
+  [[ "$CAPTURE_OUTPUT" == *'The Copilot token endpoint was not found for https://ghe.example.com.'* ]]
+  [[ "$CAPTURE_OUTPUT" == *'This usually means the GitHub account does not have Copilot access on that host, or the wrong GitHub host is configured.'* ]]
 }
 
 @test "connect authenticates copilot and persists the selected model" {

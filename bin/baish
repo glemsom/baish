@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 SCRIPT_DIR_PART="${SCRIPT_PATH%/*}"
 if [[ "$SCRIPT_DIR_PART" == "$SCRIPT_PATH" ]]; then
   SCRIPT_DIR_PART='.'
 fi
-SCRIPT_DIR="$(cd -- "$SCRIPT_DIR_PART" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd -- "$SCRIPT_DIR_PART" && pwd)" || {
+  echo "Failed to resolve script directory: $SCRIPT_DIR_PART" >&2
+  exit 1
+}
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)" || {
+  echo "Failed to resolve repository root from: $SCRIPT_DIR" >&2
+  exit 1
+}
 
 # shellcheck source=../lib/main.sh
-source "$REPO_ROOT/lib/main.sh"
+if ! source "$REPO_ROOT/lib/main.sh"; then
+  echo "Failed to load $REPO_ROOT/lib/main.sh" >&2
+  exit 1
+fi
 
 baish_main "$@"

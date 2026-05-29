@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
 
+provider_copilot_normalize_host() {
+  local host="$1"
+
+  if [[ -z "$host" ]]; then
+    printf 'BAISH Copilot host is empty.\n' >&2
+    return 1
+  fi
+
+  if [[ "$host" =~ ^https?:// ]]; then
+    provider_copilot_trim_trailing_slash "$host"
+    return 0
+  fi
+
+  provider_copilot_trim_trailing_slash "https://$host"
+}
+
 provider_copilot_default_host() {
-  printf 'https://github.com\n'
+  local host="${BAISH_COPILOT_HOST:-${COPILOT_GH_HOST:-${GH_HOST:-github.com}}}"
+
+  provider_copilot_normalize_host "$host"
 }
 
 provider_copilot_oauth_client_id() {
@@ -447,6 +465,12 @@ provider_copilot_refresh_auth_json() {
   if [[ "$BAISH_COPILOT_HTTP_STATUS" != '200' ]]; then
     message="$(provider_copilot_extract_error_message "$BAISH_COPILOT_HTTP_BODY")"
     printf 'BAISH Copilot token refresh failed (HTTP %s): %s\n' "$BAISH_COPILOT_HTTP_STATUS" "$message" >&2
+
+    if [[ "$BAISH_COPILOT_HTTP_STATUS" == '404' ]]; then
+      printf 'The Copilot token endpoint was not found for %s. This usually means the GitHub account does not have Copilot access on that host, or the wrong GitHub host is configured.\n' "$host" >&2
+      printf 'If you use GitHub Enterprise Cloud or data residency, set BAISH_COPILOT_HOST (or COPILOT_GH_HOST / GH_HOST) before running /connect.\n' >&2
+    fi
+
     return 1
   fi
 
