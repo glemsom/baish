@@ -213,6 +213,26 @@ setup() {
   [ -z "$output" ]
 }
 
+@test "readline binds arrow key sequences for cursor and history movement" {
+  run bash -lc '
+    source "$1/lib/readline.sh"
+    baish_readline_install_bindings
+    bind -P
+  ' bash "$REPO_ROOT"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"\M-[1;1A"'* ]]
+  [[ "$output" == *'"\M-[1;1B"'* ]]
+  [[ "$output" == *'"\M-[1;1C"'* ]]
+  [[ "$output" == *'"\M-[1;1D"'* ]]
+  [[ "$output" == *'"\M-[1;129A"'* ]]
+  [[ "$output" == *'"\M-[1;129B"'* ]]
+  [[ "$output" == *'"\M-[1;129C"'* ]]
+  [[ "$output" == *'"\M-[1;129D"'* ]]
+  [[ "$output" == *'"\M-\C-\\"'* ]]
+  [[ "$output" == *'"\M-\C-]"'* ]]
+}
+
 @test "readline binds kitty ctrl-c and ctrl-d sequences back to control chars" {
   run bash -lc '
     source "$1/lib/readline.sh"
