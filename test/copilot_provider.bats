@@ -48,7 +48,9 @@ curl() {
   local status='200'
   local body=''
   local status_text='OK'
+  local headers_json='[]'
   local arg
+  local -a headers=()
 
   while (($#)); do
     arg="$1"
@@ -58,6 +60,7 @@ curl() {
         shift 2
         ;;
       -H)
+        headers+=("$2")
         shift 2
         ;;
       --data|-d|--data-raw|--data-binary)
@@ -85,7 +88,11 @@ curl() {
     esac
   done
 
-  printf '%s\n' "$(jq -cn --arg method "$method" --arg url "$url" --arg data "$data" '{method: $method, url: $url, data: $data}')" >>"$CURL_LOG"
+  if ((${#headers[@]} > 0)); then
+    headers_json="$(printf '%s\n' "${headers[@]}" | jq -R . | jq -s .)"
+  fi
+
+  printf '%s\n' "$(jq -cn --arg method "$method" --arg url "$url" --arg data "$data" --argjson headers "$headers_json" '{method: $method, url: $url, data: $data, headers: $headers}')" >>"$CURL_LOG"
 
   case "$method $url" in
     'POST https://github.com/login/device/code')
@@ -152,6 +159,24 @@ capture_output() {
   [ "$(provider_copilot_default_host)" = 'https://github.com' ]
 }
 
+@test "copilot env token helpers prefer GH_TOKEN over GITHUB_TOKEN" {
+  unset GH_TOKEN
+  unset GITHUB_TOKEN
+
+  run provider_copilot_has_env_token
+  [ "$status" -ne 0 ]
+
+  GITHUB_TOKEN='github-token'
+  [ "$(provider_copilot_env_token_name)" = 'GITHUB_TOKEN' ]
+  [ "$(provider_copilot_env_token_value)" = 'github-token' ]
+
+  GH_TOKEN='gh-token'
+  [ "$(provider_copilot_env_token_name)" = 'GH_TOKEN' ]
+  [ "$(provider_copilot_env_token_value)" = 'gh-token' ]
+
+  provider_copilot_has_env_token
+}
+
 @test "copilot auth performs device flow and persists auth state" {
   local auth_file
 
@@ -186,6 +211,34 @@ capture_output() {
   [[ "$CAPTURE_OUTPUT" == *'This usually means the GitHub account does not have Copilot access on that host, or the wrong GitHub host is configured.'* ]]
 }
 
+@test "copilot github REST calls use minimal auth headers" {
+  local auth_json user_headers token_headers
+
+  auth_json='{"provider":"copilot","host":"https://github.com","github_token":"gho-test-token","machine_id":"machine-1","device_id":"device-1"}'
+
+  [ "$(provider_copilot_fetch_login 'https://github.com' 'gho-test-token')" = 'octocat' ]
+  provider_copilot_refresh_auth_json "$auth_json" >/dev/null
+
+  user_headers="$(jq -c 'select(.url == "https://api.github.com/user") | .headers' "$CURL_LOG")"
+  token_headers="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token") | .headers' "$CURL_LOG")"
+
+  [[ "$user_headers" == *'Accept: application/json'* ]]
+  [[ "$user_headers" == *'Authorization: Bearer gho-test-token'* ]]
+  [[ "$user_headers" == *'User-Agent: BAISH/0.1'* ]]
+  [[ "$user_headers" != *'VScode-MachineId:'* ]]
+  [[ "$user_headers" != *'Editor-Device-Id:'* ]]
+  [[ "$user_headers" != *'X-GitHub-Api-Version:'* ]]
+  [[ "$user_headers" != *'Editor-Version:'* ]]
+
+  [[ "$token_headers" == *'Accept: application/json'* ]]
+  [[ "$token_headers" == *'Authorization: Bearer gho-test-token'* ]]
+  [[ "$token_headers" == *'User-Agent: BAISH/0.1'* ]]
+  [[ "$token_headers" != *'VScode-MachineId:'* ]]
+  [[ "$token_headers" != *'Editor-Device-Id:'* ]]
+  [[ "$token_headers" != *'X-GitHub-Api-Version:'* ]]
+  [[ "$token_headers" != *'Editor-Version:'* ]]
+}
+
 @test "connect authenticates copilot and persists the selected model" {
   local auth_file state_file
 
@@ -200,6 +253,53 @@ capture_output() {
   [ -f "$state_file" ]
   [ "$(jq -r '.selected_provider' "$state_file")" = 'copilot' ]
   [ "$(jq -r '.selected_model' "$state_file")" = 'gpt-4o' ]
+}
+
+@test "connect uses env token auth and skips device flow" {
+  local auth_file state_file user_headers model_headers token_refresh_requests
+
+  GH_TOKEN='ghu-env-token'
+
+  capture_output 'baish_connect_current_provider'
+  auth_file="$TEST_HOME/.baish/auth/copilot.json"
+  state_file="$TEST_HOME/.baish/state.json"
+  user_headers="$(jq -c 'select(.url == "https://api.github.com/user") | .headers' "$CURL_LOG")"
+  model_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/models") | .headers' "$CURL_LOG")"
+  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT" == *'Using Copilot auth from GH_TOKEN.'* ]]
+  [[ "$CAPTURE_OUTPUT" == *'Copilot authorization completed for octocat.'* ]]
+  [[ "$CAPTURE_OUTPUT" == *'Selected model: gpt-4o'* ]]
+  [[ "$CAPTURE_OUTPUT" != *'To connect Copilot, visit '* ]]
+  [ -f "$auth_file" ]
+  [ -f "$state_file" ]
+  [ "$(jq -r '.auth_source' "$auth_file")" = 'env' ]
+  [ "$(jq -r '.auth_env_var' "$auth_file")" = 'GH_TOKEN' ]
+  [ "$(jq -r '.host' "$auth_file")" = 'https://github.com' ]
+  [ "$(jq -r '.login' "$auth_file")" = 'octocat' ]
+  [ "$(jq -r '.github_token // empty' "$auth_file")" = '' ]
+  [ "$(jq -r '.copilot_token // empty' "$auth_file")" = '' ]
+  [ "$(jq -r '.endpoints.api' "$auth_file")" = 'https://api.githubcopilot.com' ]
+  [ "$(jq -r '.selected_provider' "$state_file")" = 'copilot' ]
+  [ "$(jq -r '.selected_model' "$state_file")" = 'gpt-4o' ]
+  [[ "$user_headers" == *'Authorization: Bearer ghu-env-token'* ]]
+  [[ "$model_headers" == *'Authorization: Bearer ghu-env-token'* ]]
+  [ -z "$token_refresh_requests" ]
+}
+
+@test "copilot list models uses env token directly without token refresh" {
+  local models_json model_headers token_refresh_requests
+
+  GITHUB_TOKEN='github-env-token'
+  models_json="$(provider_copilot_list_models)"
+  model_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/models") | .headers' "$CURL_LOG")"
+  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+
+  [ "$(jq -r 'length' <<<"$models_json")" = '2' ]
+  [ "$(jq -r '.[0].id' <<<"$models_json")" = 'gpt-4o' ]
+  [[ "$model_headers" == *'Authorization: Bearer github-env-token'* ]]
+  [ -z "$token_refresh_requests" ]
 }
 
 @test "copilot chat uses OpenAI-style tool payloads and normalizes tool calls" {
@@ -236,4 +336,30 @@ capture_output() {
   [ "$(jq -r '.messages[1].role' <<<"$payload_json")" = 'system' ]
   [ "$(jq -r '.messages[2].content' <<<"$payload_json")" = $'Loaded skill: tdd\nWrite tests first.' ]
   [ "$(jq -r '.messages[3].role' <<<"$payload_json")" = 'user' ]
+}
+
+@test "copilot chat uses env token directly in env-token mode" {
+  local auth_json request_json response_json chat_headers token_refresh_requests
+
+  GH_TOKEN='ghu-env-token'
+  auth_json='{"provider":"copilot","auth_source":"env","auth_env_var":"GH_TOKEN","host":"https://github.com","machine_id":"machine-1","device_id":"device-1","endpoints":{"api":"https://api.githubcopilot.com"}}'
+  baish_state_write_auth_json 'copilot' "$auth_json"
+
+  request_json='{
+    "model":"gpt-4o",
+    "system_prompt":"You are BAISH.",
+    "tool_use_instructions":"Use tools structurally.",
+    "skills":[],
+    "tools":[{"name":"read","description":"Read a file.","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}],
+    "messages":[{"role":"user","content":"Inspect idea.md"}]
+  }'
+
+  response_json="$(provider_copilot_chat "$request_json")"
+  chat_headers="$(jq -c 'select(.url == "https://api.githubcopilot.com/chat/completions") | .headers' "$CURL_LOG")"
+  token_refresh_requests="$(jq -c 'select(.url == "https://api.github.com/copilot_internal/v2/token")' "$CURL_LOG")"
+
+  [ "$(jq -r '.tool_calls[0].name' <<<"$response_json")" = 'read' ]
+  [ "$(jq -r '.tool_calls[0].arguments.path' <<<"$response_json")" = 'idea.md' ]
+  [[ "$chat_headers" == *'Authorization: Bearer ghu-env-token'* ]]
+  [ -z "$token_refresh_requests" ]
 }

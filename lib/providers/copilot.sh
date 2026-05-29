@@ -306,35 +306,69 @@ provider_copilot_github_auth_headers_json() {
     --arg accept 'application/json' \
     --arg authorization "Bearer $github_token" \
     --arg user_agent "$(provider_copilot_user_agent)" \
-    --arg editor_version "$(provider_copilot_editor_version)" \
-    --arg editor_plugin_version "$(provider_copilot_editor_plugin_version)" \
-    --arg integration_id "$(provider_copilot_integration_id)" \
-    --arg api_version '2026-06-01' \
-    --arg session_id "$(provider_copilot_session_id)" \
     '{
       Accept: $accept,
       Authorization: $authorization,
-      "User-Agent": $user_agent,
-      "Editor-Version": $editor_version,
-      "Editor-Plugin-Version": $editor_plugin_version,
-      "Copilot-Integration-Id": $integration_id,
-      "X-GitHub-Api-Version": $api_version,
-      "VScode-SessionId": $session_id
+      "User-Agent": $user_agent
     }'
+}
+
+provider_copilot_env_token_name() {
+  if [[ -n "${GH_TOKEN:-}" ]]; then
+    printf 'GH_TOKEN\n'
+    return 0
+  fi
+
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    printf 'GITHUB_TOKEN\n'
+    return 0
+  fi
+
+  return 1
+}
+
+provider_copilot_env_token_value() {
+  local token_name
+
+  token_name="$(provider_copilot_env_token_name)" || return 1
+  printf '%s\n' "${!token_name}"
+}
+
+provider_copilot_has_env_token() {
+  provider_copilot_env_token_name >/dev/null 2>&1
+}
+
+provider_copilot_auth_bearer_token() {
+  local auth_json="$1"
+  local env_token copilot_token
+
+  env_token="$(provider_copilot_env_token_value 2>/dev/null || true)"
+  if [[ -n "$env_token" ]]; then
+    printf '%s\n' "$env_token"
+    return 0
+  fi
+
+  copilot_token="$(jq -r '.copilot_token // empty' <<<"$auth_json")" || return 1
+  if [[ -z "$copilot_token" ]]; then
+    printf 'BAISH Copilot auth is missing the API bearer token. Run /connect.\n' >&2
+    return 1
+  fi
+
+  printf '%s\n' "$copilot_token"
 }
 
 provider_copilot_api_headers_json() {
   local auth_json="$1"
-  local copilot_token machine_id device_id
+  local bearer_token machine_id device_id
 
-  copilot_token="$(jq -r '.copilot_token // empty' <<<"$auth_json")" || return 1
+  bearer_token="$(provider_copilot_auth_bearer_token "$auth_json")" || return 1
   machine_id="$(jq -r '.machine_id // empty' <<<"$auth_json")" || return 1
   device_id="$(jq -r '.device_id // empty' <<<"$auth_json")" || return 1
 
   jq -cn \
     --arg accept 'application/json' \
     --arg content_type 'application/json' \
-    --arg authorization "Bearer $copilot_token" \
+    --arg authorization "Bearer $bearer_token" \
     --arg user_agent "$(provider_copilot_user_agent)" \
     --arg editor_version "$(provider_copilot_editor_version)" \
     --arg editor_plugin_version "$(provider_copilot_editor_plugin_version)" \
@@ -503,6 +537,36 @@ provider_copilot_refresh_auth_json() {
   printf '%s\n' "$refreshed_json"
 }
 
+provider_copilot_env_auth_json() {
+  local existing_auth_json="${1:-{}}"
+  local host auth_env_var auth_json
+
+  if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$existing_auth_json"; then
+    existing_auth_json='{}'
+  fi
+
+  host="$(provider_copilot_default_host)" || return 1
+  auth_env_var="$(provider_copilot_env_token_name)" || return 1
+
+  auth_json="$(jq -cn \
+    --argjson auth "$existing_auth_json" \
+    --arg host "$host" \
+    --arg auth_env_var "$auth_env_var" \
+    '{
+      provider: "copilot",
+      auth_source: "env",
+      auth_env_var: $auth_env_var,
+      host: $host,
+      login: ($auth.login // null),
+      machine_id: ($auth.machine_id // null),
+      device_id: ($auth.device_id // null),
+      endpoints: (($auth.endpoints // {}) + {api: "https://api.githubcopilot.com"})
+    }
+    | with_entries(select(.value != null))')" || return 1
+
+  provider_copilot_auth_json_with_ids "$auth_json"
+}
+
 provider_copilot_read_auth_json() {
   local auth_json
 
@@ -517,6 +581,14 @@ provider_copilot_read_auth_json() {
 
 provider_copilot_get_active_auth_json() {
   local auth_json refreshed_json
+
+  if provider_copilot_has_env_token; then
+    auth_json="$(baish_state_read_auth_json 'copilot' 2>/dev/null || printf '{}\n')" || return 1
+    auth_json="$(provider_copilot_env_auth_json "$auth_json")" || return 1
+    baish_state_write_auth_json 'copilot' "$auth_json" || return 1
+    printf '%s\n' "$auth_json"
+    return 0
+  fi
 
   auth_json="$(provider_copilot_read_auth_json)" || return 1
   auth_json="$(provider_copilot_auth_json_with_ids "$auth_json")" || return 1
@@ -550,8 +622,42 @@ provider_copilot_try_reuse_existing_auth() {
   fi
 }
 
+provider_copilot_auth_from_env() {
+  local existing_auth_json auth_json auth_env_var env_token login
+
+  if ! provider_copilot_has_env_token; then
+    printf 'BAISH Copilot env-token auth requires GH_TOKEN or GITHUB_TOKEN.\n' >&2
+    return 1
+  fi
+
+  existing_auth_json="$(baish_state_read_auth_json 'copilot' 2>/dev/null || printf '{}\n')" || return 1
+  auth_json="$(provider_copilot_env_auth_json "$existing_auth_json")" || return 1
+  auth_env_var="$(provider_copilot_env_token_name)" || return 1
+  env_token="$(provider_copilot_env_token_value)" || return 1
+  login="$(provider_copilot_fetch_login "$(jq -r '.host' <<<"$auth_json")" "$env_token" 2>/dev/null || true)"
+
+  if [[ -n "$login" ]]; then
+    auth_json="$(jq -cn --argjson auth "$auth_json" --arg login "$login" '$auth + {login: $login}')" || return 1
+  fi
+
+  provider_copilot_list_models_with_auth_json "$auth_json" >/dev/null || return 1
+  baish_state_write_auth_json 'copilot' "$auth_json" || return 1
+
+  printf 'Using Copilot auth from %s.\n' "$auth_env_var"
+  if [[ -n "$login" ]]; then
+    printf 'Copilot authorization completed for %s.\n' "$login"
+  else
+    printf 'Copilot authorization completed.\n'
+  fi
+}
+
 provider_copilot_auth() {
   local host device_json access_token_json github_token login auth_json refreshed_json
+
+  if provider_copilot_has_env_token; then
+    provider_copilot_auth_from_env
+    return $?
+  fi
 
   if provider_copilot_try_reuse_existing_auth; then
     return 0
@@ -616,10 +722,11 @@ provider_copilot_normalize_models_json() {
   ' <<<"$raw_json"
 }
 
-provider_copilot_list_models() {
-  local auth_json capi_base headers_json message models_json
+provider_copilot_list_models_with_auth_json() {
+  local auth_json="$1"
+  local capi_base headers_json message models_json
 
-  auth_json="$(provider_copilot_get_active_auth_json)" || return 1
+  auth_json="$(provider_copilot_auth_json_with_ids "$auth_json")" || return 1
   capi_base="$(jq -r '.endpoints.api // "https://api.githubcopilot.com"' <<<"$auth_json")" || return 1
   headers_json="$(provider_copilot_api_headers_json "$auth_json")" || return 1
 
@@ -637,6 +744,13 @@ provider_copilot_list_models() {
   }
 
   printf '%s\n' "$models_json"
+}
+
+provider_copilot_list_models() {
+  local auth_json
+
+  auth_json="$(provider_copilot_get_active_auth_json)" || return 1
+  provider_copilot_list_models_with_auth_json "$auth_json"
 }
 
 provider_copilot_build_chat_payload_json() {

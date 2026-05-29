@@ -16,8 +16,6 @@ V1 is a readline-style terminal app, not a full-screen TUI. It supports provider
 - No transcript logging by default
 - No automatic tests/builds/verification unless the developer explicitly asks
 
-See `PLAN.md`, `CONTEXT.md`, `docs/adr/`, and `docs/copilot-research.md` for the detailed V1 decisions.
-
 ## Runtime dependencies
 
 BAISH checks these at startup and fails fast if any are missing or unsupported:
@@ -55,9 +53,10 @@ Typical first-run flow with Copilot:
 
 1. Start BAISH.
 2. Run `/connect`.
-3. Follow the device-flow instructions in the terminal.
-4. Pick a model through `fzf`.
-5. Enter a normal prompt.
+3. If `GH_TOKEN` or `GITHUB_TOKEN` is set, BAISH uses it directly for Copilot auth.
+4. Otherwise, follow the device-flow instructions in the terminal.
+5. Pick a model through `fzf`.
+6. Enter a normal prompt.
 
 Example:
 
@@ -156,6 +155,8 @@ BAISH uses environment variables for configuration in V1.
 
 - `BAISH_PROVIDER` — active provider, default `copilot`
 - `BAISH_MODEL` — process-local model override; wins over the persisted model
+- `GH_TOKEN` — preferred direct GitHub Copilot bearer token for `/connect`, `/model`, and chat
+- `GITHUB_TOKEN` — fallback direct GitHub Copilot bearer token when `GH_TOKEN` is unset
 - `BAISH_MAX_TOOL_ROUNDS` — max tool rounds per request, default `20`
 - `BAISH_MAX_TOOL_CALLS` — max tool calls per request, default `100`
 - `BAISH_BASH_TIMEOUT` — shell tool timeout in seconds, default `120`
@@ -166,6 +167,7 @@ Examples:
 ```bash
 BAISH_PROVIDER=mock ./bin/baish
 BAISH_MODEL=gpt-4.1 ./bin/baish
+GH_TOKEN=... ./bin/baish
 BAISH_DEBUG=1 ./bin/baish
 ```
 
@@ -188,6 +190,7 @@ Notes:
 
 - Provider auth files are plain JSON.
 - Auth/token files are written with restrictive permissions.
+- In env-token Copilot mode, BAISH persists metadata-only auth state and does not store `GH_TOKEN` or `GITHUB_TOKEN` in `~/.baish/auth/copilot.json`.
 - `logs/` is only created when `BAISH_DEBUG=1`.
 - Debug logs are metadata-only and do not persist full transcripts by default.
 
@@ -209,7 +212,8 @@ bash -n bin/baish lib/*.sh lib/providers/*.sh test/test_helper.bash
 
 Copilot support in V1 follows the research documented in `docs/copilot-research.md`:
 
-- interactive device-flow auth
+- direct env-token auth via `GH_TOKEN` or `GITHUB_TOKEN`
+- interactive device-flow auth when env tokens are absent
 - persisted auth state under `~/.baish/auth/`
 - interactive model selection through `fzf`
 - non-streaming chat
