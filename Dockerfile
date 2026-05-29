@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ── Base packages ──────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        bash curl jq shellcheck ca-certificates gnupg \
+        bash curl jq shellcheck ca-certificates gnupg fzf \
     && rm -rf /var/lib/apt/lists/*
 
 # ── lean-ctx ───────────────────────────────────────────────────────
