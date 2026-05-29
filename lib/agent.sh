@@ -8,6 +8,7 @@ baish_provider_chat_response_valid() {
     and has("assistant_text")
     and has("tool_calls")
     and ((.assistant_text == null) or (.assistant_text | type == "string"))
+    and ((.phase? == null) or (.phase | type == "string" and length > 0))
     and (.tool_calls | type == "array")
     and all(
       .tool_calls[];
@@ -75,7 +76,14 @@ baish_agent_append_assistant_response() {
   local response_json="$1"
   local message_json
 
-  message_json="$(jq -cn --argjson response "$response_json" '{role: "assistant", content: $response.assistant_text, tool_calls: $response.tool_calls}')" || return 1
+  message_json="$(jq -cn --argjson response "$response_json" '
+    {
+      role: "assistant",
+      content: $response.assistant_text,
+      tool_calls: $response.tool_calls
+    }
+    + (if ($response.phase? // null) == null then {} else {phase: $response.phase} end)
+  ')" || return 1
   baish_agent_append_message_json "$message_json"
 }
 
@@ -480,12 +488,167 @@ baish_agent_summarize_tool_result() {
     '{status: $status, summary: $summary, footer: $footer, detail: $detail}'
 }
 
-baish_agent_print_tool_round_start() {
-  printf '%s╭─%s %sTools%s\n' \
+baish_agent_terminal_width() {
+  local width="${COLUMNS:-100}"
+
+  if [[ ! "$width" =~ ^[0-9]+$ ]] || (( width < 40 )); then
+    width=100
+  fi
+
+  printf '%s\n' "$width"
+}
+
+baish_agent_round_is_read_only() {
+  local response_json="$1"
+
+  jq -e '
+    (.tool_calls | type == "array")
+    and (.tool_calls | length > 0)
+    and all(.tool_calls[]; .name == "read")
+  ' >/dev/null 2>&1 <<<"$response_json"
+}
+
+baish_agent_collect_read_paths_json() {
+  local response_json="$1"
+
+  jq -c '
+    [
+      .tool_calls[]?
+      | select(.name == "read")
+      | .arguments.path?
+      | select(type == "string" and length > 0)
+    ]
+    | reduce .[] as $path ([]; if index($path) == null then . + [$path] else . end)
+  ' <<<"$response_json"
+}
+
+baish_agent_join_paths_for_display() {
+  local paths_json="$1"
+
+  jq -r '
+    if type == "array" then
+      join(", ")
+    else
+      ""
+    end
+  ' <<<"$paths_json"
+}
+
+baish_agent_phase_label() {
+  local response_json="$1"
+
+  if jq -e '(.phase? | type == "string" and length > 0)' >/dev/null 2>&1 <<<"$response_json"; then
+    jq -r '.phase' <<<"$response_json"
+    return 0
+  fi
+
+  if baish_agent_round_is_read_only "$response_json"; then
+    printf 'Inspect files\n'
+  else
+    printf 'Use tools\n'
+  fi
+}
+
+baish_agent_print_phase_round_start() {
+  local phase_label="$1"
+
+  printf '%s╭─%s %sPhase:%s %s%s%s\n' \
     "$(baish_agent_style_dim)" \
     "$(baish_agent_style_reset)" \
     "$(baish_agent_style_cyan)" \
+    "$(baish_agent_style_reset)" \
+    "$(baish_agent_style_bold_white)" \
+    "$phase_label" \
     "$(baish_agent_style_reset)"
+}
+
+baish_agent_print_phase_round_files() {
+  local joined_paths="$1"
+  local width content_width item remaining current_line candidate
+  local label='Files:'
+  local continuation_label='      '
+  local first_line=1
+
+  if [[ -z "$joined_paths" ]]; then
+    return 0
+  fi
+
+  width="$(baish_agent_terminal_width)" || return 1
+  content_width=$(( width - 10 ))
+  if (( content_width < 20 )); then
+    content_width=20
+  fi
+
+  remaining="$joined_paths"
+  current_line=''
+
+  while [[ -n "$remaining" ]]; do
+    if [[ "$remaining" == *', '* ]]; then
+      item="${remaining%%, *}"
+      remaining="${remaining#*, }"
+    else
+      item="$remaining"
+      remaining=''
+    fi
+
+    if [[ -z "$current_line" ]]; then
+      candidate="$item"
+    else
+      candidate="$current_line, $item"
+    fi
+
+    if (( ${#candidate} <= content_width )) || [[ -z "$current_line" ]]; then
+      current_line="$candidate"
+      continue
+    fi
+
+    if (( first_line == 1 )); then
+      printf '%s│%s %s%s%s %s%s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_cyan)" \
+        "$label" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_bold_white)" \
+        "$current_line" \
+        "$(baish_agent_style_reset)"
+      first_line=0
+    else
+      printf '%s│%s %s%s%s %s%s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_cyan)" \
+        "$continuation_label" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_bold_white)" \
+        "$current_line" \
+        "$(baish_agent_style_reset)"
+    fi
+
+    current_line="$item"
+  done
+
+  if (( first_line == 1 )); then
+    printf '%s│%s %s%s%s %s%s%s\n' \
+      "$(baish_agent_style_dim)" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_cyan)" \
+      "$label" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_bold_white)" \
+      "$current_line" \
+      "$(baish_agent_style_reset)"
+  else
+    printf '%s│%s %s%s%s %s%s%s\n' \
+      "$(baish_agent_style_dim)" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_cyan)" \
+      "$continuation_label" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_bold_white)" \
+      "$current_line" \
+      "$(baish_agent_style_reset)"
+  fi
 }
 
 baish_agent_print_tool_round_item() {
@@ -595,6 +758,7 @@ baish_agent_run_user_message() {
   local tool_call_json tool_call_id tool_name tool_arguments tool_result
   local tool_call_summary tool_result_summary_json tool_render_status tool_render_summary
   local tool_render_footer tool_render_detail round_status round_footer round_detail
+  local round_phase_label read_paths_json read_paths_joined
 
   if [[ -z "$user_text" ]]; then
     return 0
@@ -651,7 +815,15 @@ baish_agent_run_user_message() {
     fi
     tool_rounds=$(( tool_rounds + 1 ))
 
-    baish_agent_print_tool_round_start
+    round_phase_label="$(baish_agent_phase_label "$response_json")" || return 1
+    read_paths_json="$(baish_agent_collect_read_paths_json "$response_json")" || return 1
+    read_paths_joined="$(baish_agent_join_paths_for_display "$read_paths_json")" || return 1
+
+    baish_agent_print_phase_round_start "$round_phase_label"
+    if [[ -n "$read_paths_joined" ]]; then
+      baish_agent_print_phase_round_files "$read_paths_joined"
+    fi
+
     round_status='success'
     round_footer='completed'
     round_detail=''
@@ -668,9 +840,12 @@ baish_agent_run_user_message() {
       tool_call_id="$(jq -r '.id' <<<"$tool_call_json")" || return 1
       tool_name="$(jq -r '.name' <<<"$tool_call_json")" || return 1
       tool_arguments="$(jq -c '.arguments' <<<"$tool_call_json")" || return 1
-      tool_call_summary="$(baish_agent_summarize_tool_call "$tool_name" "$tool_arguments")" || return 1
 
-      baish_agent_print_tool_round_item "$tool_name" "$tool_call_summary"
+      if [[ "$tool_name" != 'read' ]]; then
+        tool_call_summary="$(baish_agent_summarize_tool_call "$tool_name" "$tool_arguments")" || return 1
+        baish_agent_print_tool_round_item "$tool_name" "$tool_call_summary"
+      fi
+
       tool_result="$(baish_tool_execute_json "$tool_name" "$tool_arguments")" || return 1
       tool_result_summary_json="$(baish_agent_summarize_tool_result "$tool_name" "$tool_result")" || return 1
       tool_render_status="$(jq -r '.status' <<<"$tool_result_summary_json")" || return 1
@@ -678,11 +853,13 @@ baish_agent_run_user_message() {
       tool_render_footer="$(jq -r '.footer // ""' <<<"$tool_result_summary_json")" || return 1
       tool_render_detail="$(jq -r '.detail // ""' <<<"$tool_result_summary_json")" || return 1
 
-      if [[ -n "$tool_render_summary" ]]; then
-        baish_agent_print_tool_round_result_summary "$tool_render_summary"
-      fi
-      if [[ -n "$tool_render_detail" ]]; then
-        baish_agent_print_tool_round_result_detail "$tool_render_detail"
+      if [[ "$tool_name" != 'read' ]]; then
+        if [[ -n "$tool_render_summary" ]]; then
+          baish_agent_print_tool_round_result_summary "$tool_render_summary"
+        fi
+        if [[ -n "$tool_render_detail" ]]; then
+          baish_agent_print_tool_round_result_detail "$tool_render_detail"
+        fi
       fi
 
       if [[ "$tool_render_status" != 'success' && "$round_status" == 'success' ]]; then

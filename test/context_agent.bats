@@ -34,6 +34,8 @@ setup() {
   unset BAISH_MOCK_COMMAND
   unset BAISH_MOCK_FIRST_COMMAND
   unset BAISH_MOCK_SECOND_COMMAND
+  unset BAISH_MOCK_PHASE
+  unset BAISH_MOCK_READ_PATHS_JSON
 
   baish_state_init
   baish_session_reset
@@ -133,6 +135,37 @@ strip_ansi() {
   [ "$(jq -r '.detail' <<<"$summary_json")" = "$expected_tail" ]
 }
 
+@test "chat response validation accepts optional non-empty phase and rejects invalid phase values" {
+  run baish_provider_chat_response_valid '{"assistant_text":null,"tool_calls":[]}'
+  [ "$status" -eq 0 ]
+
+  run baish_provider_chat_response_valid '{"assistant_text":null,"tool_calls":[],"phase":"Inspect runtime"}'
+  [ "$status" -eq 0 ]
+
+  run baish_provider_chat_response_valid '{"assistant_text":null,"tool_calls":[],"phase":""}'
+  [ "$status" -eq 1 ]
+
+  run baish_provider_chat_response_valid '{"assistant_text":null,"tool_calls":[],"phase":123}'
+  [ "$status" -eq 1 ]
+}
+
+@test "read path collection preserves order and deduplicates exact duplicate paths" {
+  local response_json paths_json joined_paths
+
+  response_json='{"assistant_text":null,"tool_calls":[{"id":"read-1","name":"read","arguments":{"path":"README.md"}},{"id":"bash-1","name":"bash","arguments":{"command":"printf hi"}},{"id":"read-2","name":"read","arguments":{"path":"lib/agent.sh","offset":1,"limit":10}},{"id":"read-3","name":"read","arguments":{"path":"README.md"}}]}'
+  paths_json="$(baish_agent_collect_read_paths_json "$response_json")"
+  joined_paths="$(baish_agent_join_paths_for_display "$paths_json")"
+
+  [ "$paths_json" = '["README.md","lib/agent.sh"]' ]
+  [ "$joined_paths" = 'README.md, lib/agent.sh' ]
+}
+
+@test "phase fallback selection uses inspect files for read-only rounds and use tools otherwise" {
+  [ "$(baish_agent_phase_label '{"assistant_text":null,"tool_calls":[{"id":"read-1","name":"read","arguments":{"path":"README.md"}}]}')" = 'Inspect files' ]
+  [ "$(baish_agent_phase_label '{"assistant_text":null,"tool_calls":[{"id":"read-1","name":"read","arguments":{"path":"README.md"}},{"id":"bash-1","name":"bash","arguments":{"command":"printf hi"}}]}')" = 'Use tools' ]
+  [ "$(baish_agent_phase_label '{"assistant_text":null,"tool_calls":[{"id":"bash-1","name":"bash","arguments":{"command":"printf hi"}}],"phase":"Compare impl with tests"}')" = 'Compare impl with tests' ]
+}
+
 @test "first chat auto-connects and then returns the assistant response" {
   local stub_bin auth_file state_file
 
@@ -146,7 +179,7 @@ strip_ansi() {
   capture_process_input_line 'Hello BAISH'
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'user> Hello BAISH'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Hello BAISH'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Selected model: mock-text'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Connected provider: mock'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock connected hello.'* ]]
@@ -179,7 +212,7 @@ strip_ansi() {
 
   [ "$CAPTURE_STATUS" -eq 0 ]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Started new chat.'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'user> Second chat'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Second chat'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock fresh chat.'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'Connected provider: mock'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '2' ]
@@ -200,7 +233,7 @@ strip_ansi() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Tools'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Phase: Use tools'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ ⚙️ bash'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf single-tool-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
@@ -212,6 +245,78 @@ strip_ansi() {
   [ "$(jq -r 'length' <<<"$messages_json")" = '4' ]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '1' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'single-tool-output' ]
+}
+
+@test "agent loop groups read-only rounds into a phase block and persists the phase" {
+  local messages_json
+
+  printf 'readme\n' >"$TEST_PROJECT/README.md"
+  printf 'agent\n' >"$TEST_PROJECT/agent.sh"
+
+  baish_provider_call mock auth
+  baish_state_set_selected_provider_model 'mock' 'mock-tools'
+  BAISH_ACTIVE_PROVIDER='mock'
+  BAISH_ACTIVE_MODEL='mock-tools'
+  export BAISH_MOCK_SCENARIO='read_only_then_final'
+  export BAISH_MOCK_PHASE='Inspect core runtime flow'
+  export BAISH_MOCK_READ_PATHS_JSON='["README.md","agent.sh","README.md"]'
+
+  capture_process_input_line 'Inspect the core runtime.'
+  messages_json="$(baish_context_messages_json)"
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Phase: Inspect core runtime flow'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Files: README.md, agent.sh'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'│ 📖 read'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ✅ completed'* ]]
+  [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '3' ]
+  [ "$(jq -r '[.[] | select(.role == "assistant")][0].phase' <<<"$messages_json")" = 'Inspect core runtime flow' ]
+}
+
+@test "agent loop groups read files in mixed rounds and still renders non-read tool rows" {
+  local messages_json
+
+  printf 'readme\n' >"$TEST_PROJECT/README.md"
+  printf 'agent\n' >"$TEST_PROJECT/agent.sh"
+
+  baish_provider_call mock auth
+  baish_state_set_selected_provider_model 'mock' 'mock-tools'
+  BAISH_ACTIVE_PROVIDER='mock'
+  BAISH_ACTIVE_MODEL='mock-tools'
+  export BAISH_MOCK_SCENARIO='mixed_read_bash_then_final'
+  export BAISH_MOCK_PHASE='Compare impl with tests'
+  export BAISH_MOCK_READ_PATHS_JSON='["README.md","agent.sh","README.md"]'
+  export BAISH_MOCK_COMMAND='printf mixed-output'
+
+  capture_process_input_line 'Compare implementation with tests.'
+  messages_json="$(baish_context_messages_json)"
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Phase: Compare impl with tests'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Files: README.md, agent.sh'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'│ 📖 read'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ ⚙️ bash'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf mixed-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'     mixed-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed the mixed tool scenario.'* ]]
+  [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '4' ]
+}
+
+@test "agent loop uses inspect files as the fallback phase for read-only rounds" {
+  printf 'readme\n' >"$TEST_PROJECT/README.md"
+
+  baish_provider_call mock auth
+  baish_state_set_selected_provider_model 'mock' 'mock-tools'
+  BAISH_ACTIVE_PROVIDER='mock'
+  BAISH_ACTIVE_MODEL='mock-tools'
+  export BAISH_MOCK_SCENARIO='read_only_then_final'
+  export BAISH_MOCK_READ_PATHS_JSON='["README.md"]'
+
+  capture_process_input_line 'Inspect one file.'
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Phase: Inspect files'* ]]
 }
 
 @test "agent loop renders bash non-zero exits as failures and still appends both tool results" {
@@ -229,7 +334,7 @@ strip_ansi() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Tools'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Phase: Use tools'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf first-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf second-output >&2; exit 3'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]

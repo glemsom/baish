@@ -29,14 +29,24 @@ provider_mock_list_models() {
 
 provider_mock_response_text() {
   local text="$1"
+  local phase="${2-}"
 
-  jq -cn --arg text "$text" '{assistant_text: $text, tool_calls: []}'
+  if [[ -n "$phase" ]]; then
+    jq -cn --arg text "$text" --arg phase "$phase" '{assistant_text: $text, tool_calls: [], phase: $phase}'
+  else
+    jq -cn --arg text "$text" '{assistant_text: $text, tool_calls: []}'
+  fi
 }
 
 provider_mock_response_tools() {
   local tool_calls_json="$1"
+  local phase="${2-}"
 
-  jq -cn --argjson tool_calls "$tool_calls_json" '{assistant_text: null, tool_calls: $tool_calls}'
+  if [[ -n "$phase" ]]; then
+    jq -cn --argjson tool_calls "$tool_calls_json" --arg phase "$phase" '{assistant_text: null, tool_calls: $tool_calls, phase: $phase}'
+  else
+    jq -cn --argjson tool_calls "$tool_calls_json" '{assistant_text: null, tool_calls: $tool_calls}'
+  fi
 }
 
 provider_mock_tool_message_count() {
@@ -121,6 +131,68 @@ provider_mock_chat_multiple_tools_then_final() {
   provider_mock_response_text "$final_text"
 }
 
+provider_mock_chat_read_only_then_final() {
+  local request_json="$1"
+  local tool_message_count read_paths_json tool_calls_json final_text phase
+
+  tool_message_count="$(provider_mock_tool_message_count "$request_json")" || return 1
+  phase="$(jq -r '.mock.phase // env.BAISH_MOCK_PHASE // ""' <<<"$request_json")" || return 1
+
+  if (( tool_message_count == 0 )); then
+    read_paths_json="$(jq -c '(.mock.read_paths // (try (env.BAISH_MOCK_READ_PATHS_JSON | fromjson) catch null) // ["README.md"])' <<<"$request_json")" || return 1
+    tool_calls_json="$(jq -cn --argjson read_paths "$read_paths_json" '
+      $read_paths
+      | to_entries
+      | map({
+          id: ("mock-read-call-" + ((.key + 1) | tostring)),
+          name: "read",
+          arguments: {path: .value}
+        })
+    ')" || return 1
+    provider_mock_response_tools "$tool_calls_json" "$phase"
+    return 0
+  fi
+
+  final_text="$(jq -r '.mock.final_text // env.BAISH_MOCK_FINAL_TEXT // "Mock completed the read-only scenario."' <<<"$request_json")" || return 1
+  provider_mock_response_text "$final_text"
+}
+
+provider_mock_chat_mixed_read_bash_then_final() {
+  local request_json="$1"
+  local tool_message_count read_paths_json command tool_calls_json final_text phase
+
+  tool_message_count="$(provider_mock_tool_message_count "$request_json")" || return 1
+  phase="$(jq -r '.mock.phase // env.BAISH_MOCK_PHASE // ""' <<<"$request_json")" || return 1
+
+  if (( tool_message_count == 0 )); then
+    read_paths_json="$(jq -c '(.mock.read_paths // (try (env.BAISH_MOCK_READ_PATHS_JSON | fromjson) catch null) // ["README.md"])' <<<"$request_json")" || return 1
+    command="$(jq -r '.mock.command // env.BAISH_MOCK_COMMAND // "printf mixed-tool-output"' <<<"$request_json")" || return 1
+    tool_calls_json="$(jq -cn --argjson read_paths "$read_paths_json" --arg command "$command" '
+      (
+        $read_paths
+        | to_entries
+        | map({
+            id: ("mock-read-call-" + ((.key + 1) | tostring)),
+            name: "read",
+            arguments: {path: .value}
+          })
+      )
+      + [
+          {
+            id: "mock-bash-call-1",
+            name: "bash",
+            arguments: {command: $command}
+          }
+        ]
+    ')" || return 1
+    provider_mock_response_tools "$tool_calls_json" "$phase"
+    return 0
+  fi
+
+  final_text="$(jq -r '.mock.final_text // env.BAISH_MOCK_FINAL_TEXT // "Mock completed the mixed tool scenario."' <<<"$request_json")" || return 1
+  provider_mock_response_text "$final_text"
+}
+
 provider_mock_chat_loop_forever() {
   local request_json="$1"
   local command tool_calls_json
@@ -170,6 +242,12 @@ provider_mock_chat() {
       ;;
     multiple_tools_then_final)
       provider_mock_chat_multiple_tools_then_final "$request_json"
+      ;;
+    read_only_then_final)
+      provider_mock_chat_read_only_then_final "$request_json"
+      ;;
+    mixed_read_bash_then_final)
+      provider_mock_chat_mixed_read_bash_then_final "$request_json"
       ;;
     loop_forever)
       provider_mock_chat_loop_forever "$request_json"

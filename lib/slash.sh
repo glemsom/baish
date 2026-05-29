@@ -499,7 +499,6 @@ baish_process_input_line() {
   fi
 
   if ! baish_text_is_blank "$BAISH_SLASH_REMAINING_TEXT"; then
-    printf 'user> %s\n' "$BAISH_SLASH_REMAINING_TEXT"
     baish_agent_run_user_message "$BAISH_SLASH_REMAINING_TEXT"
   fi
 }
