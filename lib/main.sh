@@ -56,13 +56,12 @@ baish_startup_print_header() {
     reset="$(baish_startup_color reset)"
   fi
 
-  printf '%b\n' "${bold}${cyan}BAISH${reset}"
-  printf '%b\n' "${green}Bash Assistant for Interactive Shell workflows${reset}"
+  printf '%b\n' "${bold}${cyan}⚡ BAISH · AI Coding Assistant for Bash${reset}"
   printf '%b\n' "${dim}Slash commands:${reset}"
   printf '  %b/connect%b        connect and choose a model\n' "$cyan" "$reset"
   printf '  %b/new%b            start a fresh chat\n' "$cyan" "$reset"
   printf '  %b/model%b          pick a model interactively\n' "$cyan" "$reset"
-  printf '  %b/skill:<name>%b    load a skill into this session\n' "$cyan" "$reset"
+  printf '  %b/skill:<name>%b   load a skill into this session\n' "$cyan" "$reset"
   printf '  %b/quit%b           exit BAISH\n' "$cyan" "$reset"
   printf '  %b/exit%b           alias for /quit\n' "$cyan" "$reset"
 }
