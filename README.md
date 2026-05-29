@@ -45,8 +45,10 @@ Config loading order: **defaults → config file → env vars** (env wins).
 
 | Provider | Base URL | API Key Source | Default Model |
 |----------|----------|----------------|---------------|
-| `github` | `https://api.githubcopilot.com` | `GITHUB_TOKEN` | `gpt-4o-mini` |
-| `kilo` | `https://gateway.kilocode.ai` | `KILO_API_KEY` | `gpt-4o-mini` |
+| `github` | `https://models.inference.ai.azure.com` | `GITHUB_TOKEN` | `gpt-4o-mini` |
+| `kilo` | `https://gateway.kilocode.ai/v1` | `KILO_API_KEY` | `openai/gpt-4o-mini` |
+
+Kilo uses a separate models endpoint internally, while GitHub model discovery uses the provider-specific flat array response.
 
 ## Tools
 
@@ -86,7 +88,8 @@ BAISH discovers skills at startup and shows them in the system prompt. The AI ca
 
 - **Pure Bash** — No Python, no Node.js. Just `curl` + `jq` + `bash`.
 - **DinD** — Docker-in-Docker for containerized tool execution.
-- **OpenAI-compatible** — Works with any provider supporting the Chat Completions API.
+- **Provider modules** — Provider-specific behavior lives in `lib/providers/` behind `lib/provider.sh`.
+- **OpenAI-compatible** — Shared transport stays OpenAI-compatible while providers can override model discovery and chat behavior independently.
 - **Context management** — Automatic context window detection, token estimation, and message trimming.
 - **TUI** — Colored prompts, `glow` markdown rendering.
 - **Ephemeral** — Container is disposable; no state persists beyond the session.

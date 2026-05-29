@@ -5,6 +5,7 @@
 # shellcheck source=./lib/skills.sh
 # shellcheck source=./lib/tools.sh
 # shellcheck source=./lib/prompt.sh
+# shellcheck source=./lib/provider.sh
 # shellcheck source=./lib/api.sh
 # shellcheck source=./lib/agent.sh
 # shellcheck source=./lib/slash.sh
@@ -16,6 +17,7 @@ _BAISH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Source core libraries ──────────────────────────────────────────
 source "${_BAISH_DIR}/lib/config.sh"
+source "${_BAISH_DIR}/lib/provider.sh"
 source "${_BAISH_DIR}/lib/tui.sh"
 source "${_BAISH_DIR}/lib/skills.sh"
 source "${_BAISH_DIR}/lib/tools.sh"

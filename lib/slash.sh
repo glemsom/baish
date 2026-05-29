@@ -58,7 +58,7 @@ _slash_handler_quit() {
 # ── Built-in: /models ──────────────────────────────────────────────
 _slash_handler_models() {
     local models_json models_err
-    models_json=$(api_fetch_models 2>/tmp/baish_models_err)
+    models_json=$(provider_fetch_models 2>/tmp/baish_models_err)
     local status=$?
     models_err=$(cat /tmp/baish_models_err 2>/dev/null)
     rm -f /tmp/baish_models_err
@@ -81,22 +81,8 @@ _slash_handler_models() {
         return 1
     fi
 
-    # Extract model IDs
-    # 1. OpenAI format: {"data":[{"id":"model-name"}...]}
-    # 2. GitHub Models format: [{"name":"model-name","task":"chat-completion"}...]
-    #    (GitHub's .id is an Azure URI, not a usable model name)
     local model_list
-    model_list=$(echo "$models_json" | jq -r 'if type == "array" then empty else .data[].id // empty end' 2>/dev/null | sort)
-
-    # If not OpenAI format, try flat array with .name (GitHub Models format)
-    if [[ -z "$model_list" ]]; then
-        model_list=$(echo "$models_json" | jq -r 'if type == "array" then .[] | select(.task == "chat-completion") | .name // empty else empty end' 2>/dev/null | sort)
-    fi
-
-    # Last resort: try .id from flat array (may return Azure URIs or similar)
-    if [[ -z "$model_list" ]]; then
-        model_list=$(echo "$models_json" | jq -r 'if type == "array" then .[].id // empty else .data[] | .id // empty end' 2>/dev/null | sort)
-    fi
+    model_list=$(provider_extract_model_list "$models_json")
 
     if [[ -z "$model_list" ]]; then
         echo -e "  ${_tui_red}No models found from provider.${_tui_reset}"
@@ -149,7 +135,7 @@ _slash_handler_models() {
 
     # Try to resolve context window for new model
     local new_context
-    new_context=$(api_lookup_model_context)
+    new_context=$(provider_lookup_model_context)
     if [[ "$new_context" != "$BAISH_MAX_CONTEXT" ]]; then
         BAISH_MAX_CONTEXT="$new_context"
     fi

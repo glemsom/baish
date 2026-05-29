@@ -1,106 +1,33 @@
 #!/usr/bin/env bash
-# ── lib/api.sh — OpenAI-compatible API client & context management ──
-# Requires: lib/config.sh sourced first (BAISH_BASE_URL, BAISH_API_KEY, etc.)
+# ── lib/api.sh — provider-agnostic transport + context helpers ────
+# Requires: lib/config.sh and lib/provider.sh sourced first.
 
-# ── Resolve the correct /models URL for the provider ───────────────
-api_models_url() {
-    # Provider-specific override takes precedence
-    if [[ -n "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]:-}" ]]; then
-        echo "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]}"
-    else
-        echo "${BAISH_BASE_URL}/models"
-    fi
-}
-
-# ── Fetch available models from provider ───────────────────────────
-# Returns: raw JSON from /models endpoint on stdout
-# Exit codes: 0 = success, 1 = error
-api_fetch_models() {
-    local url
-    url=$(api_models_url)
-
-    # Check if provider has a models endpoint
-    if [[ "${_PROVIDER_HAS_MODELS_ENDPOINT[$BAISH_PROVIDER]:-true}" == "false" ]] && [[ -z "${_PROVIDER_MODELS_URL[$BAISH_PROVIDER]:-}" ]]; then
-        echo "Error: Provider '$BAISH_PROVIDER' does not expose a /models endpoint" >&2
-        return 1
-    fi
+api_http_get_json() {
+    local url="$1"
+    local api_key="$2"
+    local max_time="${3:-30}"
 
     local response
-    response=$(curl -sf --max-time 30 \
-        -H "Authorization: Bearer ${BAISH_API_KEY}" \
+    response=$(curl -sf --max-time "$max_time" \
+        -H "Authorization: Bearer ${api_key}" \
         "$url" 2>/dev/null) || {
         echo "Error: Could not reach $url" >&2
         return 1
     }
 
     if [[ -z "$response" ]]; then
-        echo "Error: Empty response from /models endpoint" >&2
+        echo "Error: Empty response from $url" >&2
         return 1
     fi
 
     echo "$response"
 }
 
-
-# ── Look up model context window ───────────────────────────────────
-api_lookup_model_context() {
-    local model="${BAISH_MODEL}"
-    local context=""
-
-    # 1. Try /models endpoint
-    local models_url
-    models_url=$(api_models_url)
-    local models_resp
-    models_resp=$(curl -sf --max-time 10 \
-        -H "Authorization: Bearer ${BAISH_API_KEY}" \
-        "$models_url" 2>/dev/null) || models_resp=""
-
-    if [[ -n "$models_resp" ]]; then
-        # Try OpenAI format (.data[]) first, then flat array (.[])
-        # Kilo uses "context_length", OpenAI uses "max_context"
-        local model_data
-        model_data=$(echo "$models_resp" | jq -r \
-            --arg m "$model" \
-            'if type == "array" then .[] else .data[] end | select(.id == $m or (.id | contains($m)) or .name == $m or (.name | contains($m))) | .max_context // .context_length // empty' 2>/dev/null) || model_data=""
-        if [[ -n "$model_data" ]]; then
-            echo "$model_data"
-            return 0
-        fi
-    fi
-
-    # 2. Fallback to config value
-    echo "$BAISH_MAX_CONTEXT"
-    return 0
-}
-
-# ── Token estimation (bash heuristic: ~4 chars per token) ─────────
-api_estimate_tokens() {
-    local text="$1"
-    local len=${#text}
-    echo $(( (len + 3) / 4 ))
-}
-
-# ── Chat completion ────────────────────────────────────────────────
-# Args: messages_json  [tools_json]
-# Returns: raw JSON response on stdout
-# Exit codes: 0 = success, 1 = error
-api_chat() {
-    local messages_json="$1"
-    local tools_json="${2:-}"
-
-    local body
-    if [[ -n "$tools_json" ]]; then
-        body=$(jq -n \
-            --arg model "$BAISH_MODEL" \
-            --argjson messages "$messages_json" \
-            --argjson tools "$tools_json" \
-            '{model: $model, messages: $messages, tools: $tools, stream: false}')
-    else
-        body=$(jq -n \
-            --arg model "$BAISH_MODEL" \
-            --argjson messages "$messages_json" \
-            '{model: $model, messages: $messages, stream: false}')
-    fi
+api_http_post_json() {
+    local url="$1"
+    local api_key="$2"
+    local body="$3"
+    local max_time="${4:-120}"
 
     local status_code=""
     local response=""
@@ -109,16 +36,15 @@ api_chat() {
     while [[ $attempt -lt 2 ]]; do
         attempt=$((attempt + 1))
 
-        # Make the API call, capturing both response and HTTP status
         local tmpfile
         tmpfile=$(mktemp)
-        status_code=$(curl -s --max-time 120 \
+        status_code=$(curl -s --max-time "$max_time" \
             -o "$tmpfile" \
             -w "%{http_code}" \
             -X POST \
-            -H "Authorization: Bearer ${BAISH_API_KEY}" \
+            -H "Authorization: Bearer ${api_key}" \
             -H "Content-Type: application/json" \
-            "${BAISH_BASE_URL}/chat/completions" \
+            "$url" \
             -d "$body" 2>/dev/null) || status_code="000"
 
         response=$(cat "$tmpfile")
@@ -126,7 +52,6 @@ api_chat() {
 
         case "$status_code" in
             200)
-                # Validate JSON
                 if ! echo "$response" | jq empty 2>/dev/null; then
                     echo "Error: Received malformed JSON from API." >&2
                     return 1
@@ -135,7 +60,6 @@ api_chat() {
                 return 0
                 ;;
             429|500|502|503|504)
-                # Transient error — retry once
                 if [[ $attempt -eq 1 ]]; then
                     sleep 2
                     continue
@@ -152,11 +76,10 @@ api_chat() {
                 return 1
                 ;;
             000)
-                echo "Error: Network error — could not reach ${BAISH_BASE_URL}." >&2
+                echo "Error: Network error — could not reach ${url}." >&2
                 return 1
                 ;;
             *)
-                # Other errors — show detail if available
                 local error_detail
                 error_detail=$(echo "$response" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null) || error_detail=""
                 if [[ -n "$error_detail" ]]; then
@@ -170,23 +93,12 @@ api_chat() {
     done
 }
 
-# ── Extract assistant text content ─────────────────────────────────
-api_extract_text() {
-    local response_json="$1"
-    echo "$response_json" | jq -r '.choices[0].message.content // empty' 2>/dev/null
+api_estimate_tokens() {
+    local text="$1"
+    local len=${#text}
+    echo $(( (len + 3) / 4 ))
 }
 
-# ── Extract tool calls array ───────────────────────────────────────
-api_extract_tool_calls() {
-    local response_json="$1"
-    echo "$response_json" | jq -c '.choices[0].message.tool_calls // []' 2>/dev/null
-}
-
-# ── Trim messages to fit within token budget ───────────────────────
-# Args: messages_json  max_tokens
-# Returns: trimmed messages JSON
-# Strategy: drop oldest non-system messages until under 80% of max_tokens.
-#           Always preserves system prompt and the last user/assistant exchange.
 api_trim_messages() {
     local messages_json="$1"
     local max_tokens="$2"
@@ -195,11 +107,6 @@ api_trim_messages() {
     local count
     count=$(echo "$messages_json" | jq 'length')
 
-    # Build a list of message indices with their token estimates
-    # Index 0 is typically system — always keep
-    # Always keep the last exchange (last user + last assistant if present)
-
-    # Calculate tokens for each message
     local -a msg_tokens=()
     local total_tokens=0
     local i
@@ -216,16 +123,10 @@ api_trim_messages() {
     done
 
     if [[ $total_tokens -le $target ]]; then
-        # Already within budget
         echo "$messages_json"
         return 0
     fi
 
-    # Determine which indices to keep:
-    # 0 (system), and the last user message + any assistant/tool messages after it
-    # We drop from the middle (oldest non-system messages first)
-
-    # Find the index of the last user message
     local last_user_idx=0
     for (( i = count - 1; i >= 0; i-- )); do
         local role
@@ -236,12 +137,6 @@ api_trim_messages() {
         fi
     done
 
-    # Collect indices to drop: from 1 up to (but not including) the exchange before last
-    # Find the exchange boundary: go back from last_user_idx to find the preceding assistant message
-    # Keep everything from the last user message onwards
-
-    # Indices to keep: 0 (system), and everything from last_user_idx onwards
-    # Also try to keep the assistant message just before last_user_idx if it exists
     local keep_before=""
     if [[ $last_user_idx -gt 1 ]]; then
         local prev_role
@@ -251,18 +146,17 @@ api_trim_messages() {
         fi
     fi
 
-    # Build trimmed array
     local trimmed="["
     local first=true
 
     for (( i = 0; i < count; i++ )); do
         local keep=false
         if [[ $i -eq 0 ]]; then
-            keep=true  # system prompt
+            keep=true
         elif [[ -n "$keep_before" && $i -eq $keep_before ]]; then
             keep=true
         elif [[ $i -ge $last_user_idx ]]; then
-            keep=true  # last exchange onwards
+            keep=true
         fi
 
         if $keep; then

@@ -208,7 +208,7 @@ agent_loop() {
 
     # Lookup actual model context from provider
     local resolved_context
-    resolved_context=$(api_lookup_model_context)
+    resolved_context=$(provider_lookup_model_context)
     if [[ "$resolved_context" != "$BAISH_MAX_CONTEXT" ]]; then
         BAISH_MAX_CONTEXT="$resolved_context"
     fi
@@ -258,7 +258,7 @@ agent_loop() {
 
             # Call the API
             local api_response
-            api_response=$(api_chat "$messages_json" "$_tools_json")
+            api_response=$(provider_chat "$messages_json" "$_tools_json")
             local api_status=$?
 
             if [[ $api_status -ne 0 ]]; then
@@ -268,10 +268,10 @@ agent_loop() {
 
             # Extract response text and tool calls
             local response_text
-            response_text=$(api_extract_text "$api_response")
+            response_text=$(provider_extract_text "$api_response")
 
             local tool_calls
-            tool_calls=$(api_extract_tool_calls "$api_response")
+            tool_calls=$(provider_extract_tool_calls "$api_response")
 
             # Check if there are tool calls
             local tool_count

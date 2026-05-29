@@ -11,29 +11,6 @@ BAISH_MAX_CONTEXT="${BAISH_MAX_CONTEXT:-32000}"
 BAISH_SKILLS_DIR="${BAISH_SKILLS_DIR:-$HOME/.baish/skills}"
 BAISH_CONFIG_FILE="${BAISH_CONFIG_FILE:-$HOME/.baish/config}"
 
-# ── Provider profiles ──────────────────────────────────────────────
-declare -A _PROVIDER_BASE_URLS=(
-    [github]="https://models.inference.ai.azure.com"
-    [kilo]="https://gateway.kilocode.ai/v1"
-)
-
-declare -A _PROVIDER_DEFAULT_MODELS=(
-    [github]="gpt-4o-mini"
-    [kilo]="openai/gpt-4o-mini"
-)
-
-# Whether the provider supports the OpenAI-compatible /models endpoint at the chat base URL
-declare -A _PROVIDER_HAS_MODELS_ENDPOINT=(
-    [github]="true"
-    [kilo]="false"
-)
-
-# Separate models endpoint URL (overrides base URL + /models)
-declare -A _PROVIDER_MODELS_URL=(
-    [kilo]="https://api.kilo.ai/api/gateway/models"
-)
-
-
 
 # ── Load config file (key=value, # comments) ──────────────────────
 config_load_file() {
@@ -63,22 +40,16 @@ config_load_file() {
 # We now fill in provider-derived values if not explicitly set.
 
 config_resolve_provider() {
-    # API key fallback from provider-specific env vars
     if [[ -z "$BAISH_API_KEY" ]]; then
-        case "$BAISH_PROVIDER" in
-            github) BAISH_API_KEY="${GITHUB_TOKEN:-}" ;;
-            kilo)   BAISH_API_KEY="${KILO_API_KEY:-}" ;;
-        esac
+        BAISH_API_KEY="$(provider_api_key)"
     fi
 
-    # Base URL auto-resolution
     if [[ -z "$BAISH_BASE_URL" ]]; then
-        BAISH_BASE_URL="${_PROVIDER_BASE_URLS[$BAISH_PROVIDER]:-}"
+        BAISH_BASE_URL="$(provider_base_url)"
     fi
 
-    # Default model if still empty
     if [[ -z "$BAISH_MODEL" ]]; then
-        BAISH_MODEL="${_PROVIDER_DEFAULT_MODELS[$BAISH_PROVIDER]:-gpt-4o-mini}"
+        BAISH_MODEL="$(provider_default_model)"
     fi
 }
 
@@ -102,6 +73,11 @@ config_set() {
 # ── Main init ──────────────────────────────────────────────────────
 config_init() {
     config_load_file
+
+    if ! provider_init; then
+        exit 1
+    fi
+
     config_resolve_provider
 
     # Validate API key is set
