@@ -213,6 +213,20 @@ setup() {
   [ -z "$output" ]
 }
 
+@test "readline binds kitty ctrl-c and ctrl-d sequences back to control chars" {
+  run bash -lc '
+    source "$1/lib/readline.sh"
+    baish_readline_install_bindings
+    bind -s
+  ' bash "$REPO_ROOT"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"\e[99;5u": "\C-c"'* ]]
+  [[ "$output" == *'"\e[99;133u": "\C-c"'* ]]
+  [[ "$output" == *'"\e[100;5u": "\C-d"'* ]]
+  [[ "$output" == *'"\e[100;133u": "\C-d"'* ]]
+}
+
 @test "/model selects and persists a model via fzf" {
   stub_bin="$BATS_TEST_TMPDIR/bin"
   make_stub_command "$stub_bin" fzf 'head -n 1'

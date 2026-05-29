@@ -186,6 +186,10 @@ baish_readline_install_bindings() {
   bind '"\e[13;131u":"'"$continue_marker"'\C-m"'
   bind '"\e[27;2;13~":"'"$continue_marker"'\C-m"'
   bind '"\e\C-m":"'"$continue_marker"'\C-m"'
+  bind '"\e[99;5u":"\C-c"'
+  bind '"\e[99;133u":"\C-c"'
+  bind '"\e[100;5u":"\C-d"'
+  bind '"\e[100;133u":"\C-d"'
 }
 
 baish_readline_loop() {
