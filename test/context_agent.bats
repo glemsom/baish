@@ -49,7 +49,12 @@ capture_process_input_line() {
   CAPTURE_STATUS=$?
   set -e
   CAPTURE_OUTPUT="$(<"$output_file")"
+  CAPTURE_OUTPUT_PLAIN="$(strip_ansi "$CAPTURE_OUTPUT")"
   return 0
+}
+
+strip_ansi() {
+  printf '%s' "$1" | tr -d '\r' | sed -E $'s/\x1B\[[0-9;]*m//g'
 }
 
 @test "context request keeps a byte-stable prefix when only conversation changes" {
@@ -70,6 +75,30 @@ capture_process_input_line() {
   [ "$(jq -c 'keys_unsorted' <<<"$request_one")" = '["model","system_prompt","tools","tool_use_instructions","skills","messages"]' ]
 }
 
+@test "tool call summarizer formats read edit write and bash previews" {
+  local read_summary edit_summary write_summary bash_summary
+
+  read_summary="$(baish_agent_summarize_tool_call read '{"path":"README.md","offset":2,"limit":3}')"
+  edit_summary="$(baish_agent_summarize_tool_call edit '{"path":"lib/agent.sh","edits":[{"oldText":"a","newText":"b"},{"oldText":"c","newText":"d"}]}')"
+  write_summary="$(baish_agent_summarize_tool_call write '{"path":"docs/out.txt","content":"hello"}')"
+  bash_summary="$(baish_agent_summarize_tool_call bash '{"command":"printf first\nprintf second\n"}')"
+
+  [ "$read_summary" = 'README.md:2-4' ]
+  [ "$edit_summary" = 'lib/agent.sh (2 replacements)' ]
+  [ "$write_summary" = 'docs/out.txt' ]
+  [ "$bash_summary" = 'printf first printf second' ]
+}
+
+@test "tool result summarizer reports edit failures concisely" {
+  local summary_json
+
+  summary_json="$(baish_agent_summarize_tool_result edit '{"ok":false,"tool":"edit","error":{"code":"old_text_not_found","message":"edit entry 0 oldText was not found exactly once."}}')"
+
+  [ "$(jq -r '.status' <<<"$summary_json")" = 'failure' ]
+  [ "$(jq -r '.footer' <<<"$summary_json")" = 'edit failed' ]
+  [ "$(jq -r '.detail' <<<"$summary_json")" = 'old_text_not_found: edit entry 0 oldText was not found exactly once.' ]
+}
+
 @test "first chat auto-connects and then returns the assistant response" {
   local stub_bin auth_file state_file
 
@@ -83,10 +112,10 @@ capture_process_input_line() {
   capture_process_input_line 'Hello BAISH'
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT" == *'user> Hello BAISH'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'Selected model: mock-text'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'Connected provider: mock'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'assistant> Mock connected hello.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'user> Hello BAISH'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'Selected model: mock-text'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'Connected provider: mock'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock connected hello.'* ]]
 
   auth_file="$TEST_HOME/.baish/auth/mock.json"
   state_file="$TEST_HOME/.baish/state.json"
@@ -96,7 +125,7 @@ capture_process_input_line() {
   [ "$(jq -r '.selected_model' "$state_file")" = 'mock-text' ]
 }
 
-@test "agent loop executes one tool call and appends the structured tool result" {
+@test "agent loop renders a successful tool round and appends the structured tool result" {
   local messages_json
 
   baish_provider_call mock auth
@@ -110,15 +139,20 @@ capture_process_input_line() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT" == *'tool> bash {"command":"printf single-tool-output"}'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'"stdout":"single-tool-output"'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'assistant> Mock completed the single-tool scenario.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Tools'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ ⚙️ bash'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf single-tool-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ✅ completed'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool> bash'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool_result>'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed the single-tool scenario.'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '4' ]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '1' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'single-tool-output' ]
 }
 
-@test "agent loop executes all tool calls returned in one provider response" {
+@test "agent loop renders bash non-zero exits as failures and still appends both tool results" {
   local messages_json
 
   baish_provider_call mock auth
@@ -133,9 +167,13 @@ capture_process_input_line() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 0 ]
-  [[ "$CAPTURE_OUTPUT" == *'tool> bash {"command":"printf first-output"}'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'tool> bash {"command":"printf second-output >&2; exit 3"}'* ]]
-  [[ "$CAPTURE_OUTPUT" == *'assistant> Mock completed 2 tool calls.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Tools'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf first-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf second-output >&2; exit 3'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ❌ bash failed (exit 3)'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ stderr: second-output'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed 2 tool calls.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'first-output' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][1].result.data.stderr' <<<"$messages_json")" = 'second-output' ]
@@ -157,7 +195,7 @@ capture_process_input_line() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 1 ]
-  [[ "$CAPTURE_OUTPUT" == *'BAISH stopped because the max tool rounds limit (2) was exceeded.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'BAISH stopped because the max tool rounds limit (2) was exceeded.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '2' ]
 }
 
@@ -177,7 +215,7 @@ capture_process_input_line() {
   messages_json="$(baish_context_messages_json)"
 
   [ "$CAPTURE_STATUS" -eq 1 ]
-  [[ "$CAPTURE_OUTPUT" == *'BAISH stopped because the max tool calls limit (1) was exceeded.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'BAISH stopped because the max tool calls limit (1) was exceeded.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '1' ]
 }
 
@@ -191,5 +229,5 @@ capture_process_input_line() {
   capture_process_input_line 'Overflow the model.'
 
   [ "$CAPTURE_STATUS" -eq 1 ]
-  [[ "$CAPTURE_OUTPUT" == *'BAISH could not continue because the tool output exceeded the model context window. Retry with a narrower command or ask BAISH to inspect a smaller file range.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'BAISH could not continue because the tool output exceeded the model context window. Retry with a narrower command or ask BAISH to inspect a smaller file range.'* ]]
 }

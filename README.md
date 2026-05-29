@@ -4,6 +4,8 @@ BAISH is a Bash-first terminal AI coding agent for GNU/Linux.
 
 V1 is a readline-style terminal app, not a full-screen TUI. It supports provider-backed chat, slash commands, explicit skills, and autonomous file/shell tools.
 
+Tool activity is rendered in rich terminal blocks with emoji, box-drawing characters, ANSI styling, and concise per-tool summaries instead of raw tool JSON dumps.
+
 ## V1 scope
 
 - GNU/Linux only

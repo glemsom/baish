@@ -190,12 +190,374 @@ baish_agent_print_provider_error() {
   fi
 }
 
+baish_agent_style_reset() {
+  printf '\033[0m'
+}
+
+baish_agent_style_dim() {
+  printf '\033[2m'
+}
+
+baish_agent_style_cyan() {
+  printf '\033[36m'
+}
+
+baish_agent_style_bold_white() {
+  printf '\033[1;97m'
+}
+
+baish_agent_style_green() {
+  printf '\033[32m'
+}
+
+baish_agent_style_red() {
+  printf '\033[31m'
+}
+
+baish_agent_style_yellow() {
+  printf '\033[33m'
+}
+
+baish_agent_tool_icon() {
+  local tool_name="$1"
+
+  case "$tool_name" in
+    read)
+      printf '📖\n'
+      ;;
+    edit)
+      printf '✏️\n'
+      ;;
+    write)
+      printf '📝\n'
+      ;;
+    bash)
+      printf '⚙️\n'
+      ;;
+    *)
+      printf '🛠️\n'
+      ;;
+  esac
+}
+
+baish_agent_normalize_preview_text() {
+  local text="$1"
+
+  printf '%s' "$text" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+baish_agent_truncate_preview() {
+  local text="$1"
+  local max_width="$2"
+
+  if [[ ! "$max_width" =~ ^[0-9]+$ ]] || (( max_width <= 0 )); then
+    printf '%s\n' "$text"
+    return 0
+  fi
+
+  if (( ${#text} > max_width )); then
+    if (( max_width == 1 )); then
+      printf '…\n'
+    else
+      printf '%s…\n' "${text:0:max_width-1}"
+    fi
+  else
+    printf '%s\n' "$text"
+  fi
+}
+
+baish_agent_first_non_empty_line() {
+  local text="$1"
+
+  awk '
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      trimmed = line
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", trimmed)
+      if (length(trimmed) > 0) {
+        print trimmed
+        exit
+      }
+    }
+  ' <<<"$text"
+}
+
+baish_agent_count_label() {
+  local count="$1"
+  local singular="$2"
+  local plural="$3"
+
+  if [[ "$count" == '1' ]]; then
+    printf '%s %s\n' "$count" "$singular"
+  else
+    printf '%s %s\n' "$count" "$plural"
+  fi
+}
+
+baish_agent_summarize_tool_call() {
+  local tool_name="$1"
+  local arguments_json="$2"
+  local path has_offset has_limit start limit end_line replacements command preview
+
+  case "$tool_name" in
+    read)
+      if ! jq -e '
+        type == "object"
+        and (.path? | type == "string" and length > 0)
+        and ((.offset? == null) or (.offset | type == "number" and floor == . and . >= 1))
+        and ((.limit? == null) or (.limit | type == "number" and floor == . and . >= 0))
+      ' >/dev/null 2>&1 <<<"$arguments_json"; then
+        printf '[invalid arguments]\n'
+        return 0
+      fi
+
+      path="$(jq -r '.path' <<<"$arguments_json")" || return 1
+      has_offset="$(jq -r 'has("offset")' <<<"$arguments_json")" || return 1
+      has_limit="$(jq -r 'has("limit")' <<<"$arguments_json")" || return 1
+
+      if [[ "$has_offset" == 'true' || "$has_limit" == 'true' ]]; then
+        start="$(jq -r 'if .offset == null then 1 else .offset end' <<<"$arguments_json")" || return 1
+        if [[ "$has_limit" == 'true' ]]; then
+          limit="$(jq -r '.limit' <<<"$arguments_json")" || return 1
+          if (( limit == 0 )); then
+            printf '%s:%s+\n' "$path" "$start"
+          else
+            end_line=$(( start + limit - 1 ))
+            printf '%s:%s-%s\n' "$path" "$start" "$end_line"
+          fi
+        else
+          printf '%s:%s+\n' "$path" "$start"
+        fi
+      else
+        printf '%s\n' "$path"
+      fi
+      ;;
+    edit)
+      if ! jq -e '
+        type == "object"
+        and (.path? | type == "string" and length > 0)
+        and (.edits? | type == "array")
+      ' >/dev/null 2>&1 <<<"$arguments_json"; then
+        printf '[invalid arguments]\n'
+        return 0
+      fi
+
+      path="$(jq -r '.path' <<<"$arguments_json")" || return 1
+      replacements="$(jq -r '.edits | length' <<<"$arguments_json")" || return 1
+      printf '%s (%s)\n' "$path" "$(baish_agent_count_label "$replacements" 'replacement' 'replacements')"
+      ;;
+    write)
+      if ! jq -e '
+        type == "object"
+        and (.path? | type == "string" and length > 0)
+        and (.content? | type == "string")
+      ' >/dev/null 2>&1 <<<"$arguments_json"; then
+        printf '[invalid arguments]\n'
+        return 0
+      fi
+
+      jq -r '.path' <<<"$arguments_json"
+      ;;
+    bash)
+      if ! jq -e '
+        type == "object"
+        and (.command? | type == "string")
+      ' >/dev/null 2>&1 <<<"$arguments_json"; then
+        printf '[invalid arguments]\n'
+        return 0
+      fi
+
+      command="$(jq -r '.command' <<<"$arguments_json")" || return 1
+      preview="$(baish_agent_normalize_preview_text "$command")" || return 1
+      baish_agent_truncate_preview "$preview" 100
+      ;;
+    *)
+      printf '\n'
+      ;;
+  esac
+}
+
+baish_agent_summarize_tool_result() {
+  local tool_name="$1"
+  local result_json="$2"
+  local status summary footer detail
+  local line_count replacements bytes action exit_code stdout_text stderr_text preview_line
+
+  if ! jq -e 'type == "object" and (.ok? | type == "boolean")' >/dev/null 2>&1 <<<"$result_json"; then
+    jq -cn \
+      --arg status 'failure' \
+      --arg summary '' \
+      --arg footer "$tool_name failed" \
+      --arg detail 'invalid tool result' \
+      '{status: $status, summary: $summary, footer: $footer, detail: $detail}'
+    return 0
+  fi
+
+  if [[ "$(jq -r '.ok' <<<"$result_json")" != 'true' ]]; then
+    footer="$tool_name failed"
+    detail="$(jq -r '(.error.code // "tool_error") + (if (.error.message // "") == "" then "" else ": " + .error.message end)' <<<"$result_json")" || return 1
+    detail="$(baish_agent_truncate_preview "$(baish_agent_normalize_preview_text "$detail")" 140)" || return 1
+    jq -cn \
+      --arg status 'failure' \
+      --arg summary '' \
+      --arg footer "$footer" \
+      --arg detail "$detail" \
+      '{status: $status, summary: $summary, footer: $footer, detail: $detail}'
+    return 0
+  fi
+
+  status='success'
+  summary='completed'
+  footer='completed'
+  detail=''
+
+  case "$tool_name" in
+    read)
+      line_count="$(jq -r '.data.line_count // 0' <<<"$result_json")" || return 1
+      summary="$(baish_agent_count_label "$line_count" 'line' 'lines')" || return 1
+      ;;
+    edit)
+      replacements="$(jq -r '.data.replacements // 0' <<<"$result_json")" || return 1
+      bytes="$(jq -r '.data.bytes // 0' <<<"$result_json")" || return 1
+      summary="updated ($(baish_agent_count_label "$replacements" 'replacement' 'replacements' | tr -d '\n'), $bytes bytes)"
+      ;;
+    write)
+      bytes="$(jq -r '.data.bytes // 0' <<<"$result_json")" || return 1
+      if [[ "$(jq -r '.data.created // false' <<<"$result_json")" == 'true' ]]; then
+        action='created'
+      elif [[ "$(jq -r '.data.overwritten // false' <<<"$result_json")" == 'true' ]]; then
+        action='overwritten'
+      else
+        action='wrote'
+      fi
+      summary="$action ($bytes bytes)"
+      ;;
+    bash)
+      exit_code="$(jq -r '.data.exit_code // 0' <<<"$result_json")" || return 1
+      stdout_text="$(jq -r '.data.stdout // ""' <<<"$result_json")" || return 1
+      stderr_text="$(jq -r '.data.stderr // ""' <<<"$result_json")" || return 1
+
+      if (( exit_code != 0 )); then
+        status='failure'
+        footer="bash failed (exit $exit_code)"
+        preview_line="$(baish_agent_first_non_empty_line "$stderr_text")" || return 1
+        if [[ -n "$preview_line" ]]; then
+          detail="stderr: $(baish_agent_truncate_preview "$(baish_agent_normalize_preview_text "$preview_line")" 140)"
+        else
+          preview_line="$(baish_agent_first_non_empty_line "$stdout_text")" || return 1
+          if [[ -n "$preview_line" ]]; then
+            detail="stdout: $(baish_agent_truncate_preview "$(baish_agent_normalize_preview_text "$preview_line")" 140)"
+          fi
+        fi
+      elif [[ -n "$stdout_text" || -n "$stderr_text" ]]; then
+        summary='completed with output'
+      else
+        summary='completed (exit 0)'
+      fi
+      ;;
+  esac
+
+  jq -cn \
+    --arg status "$status" \
+    --arg summary "$summary" \
+    --arg footer "$footer" \
+    --arg detail "$detail" \
+    '{status: $status, summary: $summary, footer: $footer, detail: $detail}'
+}
+
+baish_agent_print_tool_round_start() {
+  printf '%s╭─%s %sTools%s\n' \
+    "$(baish_agent_style_dim)" \
+    "$(baish_agent_style_reset)" \
+    "$(baish_agent_style_cyan)" \
+    "$(baish_agent_style_reset)"
+}
+
+baish_agent_print_tool_round_item() {
+  local tool_name="$1"
+  local summary="$2"
+  local icon padded_name
+
+  icon="$(baish_agent_tool_icon "$tool_name")" || return 1
+  printf -v padded_name '%-5s' "$tool_name"
+
+  if [[ -n "$summary" ]]; then
+    printf '%s│%s %s%s %s%s%s\n' \
+      "$(baish_agent_style_dim)" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_cyan)" \
+      "$icon $padded_name" \
+      "$(baish_agent_style_bold_white)" \
+      "$summary" \
+      "$(baish_agent_style_reset)"
+  else
+    printf '%s│%s %s%s%s\n' \
+      "$(baish_agent_style_dim)" \
+      "$(baish_agent_style_reset)" \
+      "$(baish_agent_style_cyan)" \
+      "$icon $tool_name" \
+      "$(baish_agent_style_reset)"
+  fi
+}
+
+baish_agent_print_tool_round_result_summary() {
+  local summary="$1"
+
+  printf '%s│%s   %s↳ %s%s\n' \
+    "$(baish_agent_style_dim)" \
+    "$(baish_agent_style_reset)" \
+    "$(baish_agent_style_dim)" \
+    "$summary" \
+    "$(baish_agent_style_reset)"
+}
+
+baish_agent_print_tool_round_end() {
+  local status="$1"
+  local text="$2"
+  local color icon
+
+  case "$status" in
+    success)
+      color="$(baish_agent_style_green)"
+      icon='✅'
+      ;;
+    warning)
+      color="$(baish_agent_style_yellow)"
+      icon='⚠️'
+      ;;
+    *)
+      color="$(baish_agent_style_red)"
+      icon='❌'
+      ;;
+  esac
+
+  printf '%s╰─%s %s%s%s %s\n' \
+    "$(baish_agent_style_dim)" \
+    "$(baish_agent_style_reset)" \
+    "$color" \
+    "$icon" \
+    "$(baish_agent_style_reset)" \
+    "$text"
+}
+
+baish_agent_print_tool_round_detail() {
+  local detail="$1"
+
+  printf '   %s↳ %s%s\n' \
+    "$(baish_agent_style_dim)" \
+    "$detail" \
+    "$(baish_agent_style_reset)"
+}
+
 baish_agent_run_user_message() {
   local user_text="$1"
   local provider model request_json response_json assistant_text
   local max_tool_rounds max_tool_calls reconnect_attempted=0 first_request=1
   local tool_rounds=0 tool_calls=0 tool_call_count
   local tool_call_json tool_call_id tool_name tool_arguments tool_result
+  local tool_call_summary tool_result_summary_json tool_render_status tool_render_summary
+  local tool_render_footer tool_render_detail round_status round_footer round_detail
 
   if [[ -z "$user_text" ]]; then
     return 0
@@ -252,6 +614,11 @@ baish_agent_run_user_message() {
     fi
     tool_rounds=$(( tool_rounds + 1 ))
 
+    baish_agent_print_tool_round_start
+    round_status='success'
+    round_footer='completed'
+    round_detail=''
+
     while IFS= read -r tool_call_json; do
       [[ -z "$tool_call_json" ]] && continue
 
@@ -264,12 +631,32 @@ baish_agent_run_user_message() {
       tool_call_id="$(jq -r '.id' <<<"$tool_call_json")" || return 1
       tool_name="$(jq -r '.name' <<<"$tool_call_json")" || return 1
       tool_arguments="$(jq -c '.arguments' <<<"$tool_call_json")" || return 1
+      tool_call_summary="$(baish_agent_summarize_tool_call "$tool_name" "$tool_arguments")" || return 1
 
-      printf 'tool> %s %s\n' "$tool_name" "$tool_arguments"
+      baish_agent_print_tool_round_item "$tool_name" "$tool_call_summary"
       tool_result="$(baish_tool_execute_json "$tool_name" "$tool_arguments")" || return 1
-      printf 'tool_result> %s\n' "$tool_result"
+      tool_result_summary_json="$(baish_agent_summarize_tool_result "$tool_name" "$tool_result")" || return 1
+      tool_render_status="$(jq -r '.status' <<<"$tool_result_summary_json")" || return 1
+      tool_render_summary="$(jq -r '.summary // ""' <<<"$tool_result_summary_json")" || return 1
+      tool_render_footer="$(jq -r '.footer // ""' <<<"$tool_result_summary_json")" || return 1
+      tool_render_detail="$(jq -r '.detail // ""' <<<"$tool_result_summary_json")" || return 1
+
+      if [[ "$tool_render_status" == 'success' ]]; then
+        if [[ -n "$tool_render_summary" ]]; then
+          baish_agent_print_tool_round_result_summary "$tool_render_summary"
+        fi
+      elif [[ "$round_status" == 'success' ]]; then
+        round_status='failure'
+        round_footer="$tool_render_footer"
+        round_detail="$tool_render_detail"
+      fi
 
       baish_agent_append_tool_result "$tool_call_id" "$tool_name" "$tool_result" || return 1
     done < <(jq -c '.tool_calls[]' <<<"$response_json")
+
+    baish_agent_print_tool_round_end "$round_status" "$round_footer"
+    if [[ -n "$round_detail" ]]; then
+      baish_agent_print_tool_round_detail "$round_detail"
+    fi
   done
 }
