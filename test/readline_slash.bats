@@ -78,7 +78,7 @@ setup() {
 }
 
 @test "/new resets only the conversation messages" {
-  local output status
+  local output_file output status
 
   mkdir -p "$TEST_PROJECT/.baish/skills"
   printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
@@ -87,8 +87,10 @@ setup() {
   BAISH_SESSION_MESSAGES+=('{"role":"user","content":"first"}')
   BAISH_SESSION_MESSAGES+=('{"role":"assistant","content":"second"}')
 
-  output="$(baish_slash_execute_command 'new')"
+  output_file="$BATS_TEST_TMPDIR/new-output"
+  baish_slash_execute_command 'new' >"$output_file"
   status=$?
+  output="$(<"$output_file")"
 
   [ "$status" -eq 0 ]
   [ "$output" = 'Started new chat.' ]
