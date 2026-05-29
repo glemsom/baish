@@ -119,6 +119,16 @@ setup() {
   [[ "$output" == $'/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
 }
 
+@test "readline bindings install without line editing warnings" {
+  run bash -lc '
+    source "$1/lib/readline.sh"
+    baish_readline_install_bindings
+  ' bash "$REPO_ROOT"
+
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "/model selects and persists a model via fzf" {
   stub_bin="$BATS_TEST_TMPDIR/bin"
   make_stub_command "$stub_bin" fzf 'head -n 1'

@@ -113,6 +113,10 @@ baish_readline_handle_tab() {
 }
 
 baish_readline_install_bindings() {
+  if ! [[ -o emacs || -o vi ]]; then
+    set -o emacs || return 1
+  fi
+
   bind -x '"\C-i":baish_readline_handle_tab'
 }
 
