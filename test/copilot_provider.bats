@@ -68,6 +68,9 @@ curl() {
         ;;
       --data|-d|--data-raw|--data-binary)
         data="$2"
+        if [[ "$data" == '@-' ]]; then
+          data="$(cat)"
+        fi
         shift 2
         ;;
       -D)
@@ -416,6 +419,19 @@ capture_output() {
   [ "$(jq -r '.input[4].type' <<<"$payload_json")" = 'function_call_output' ]
   [ "$(jq -r '.input[4].call_id' <<<"$payload_json")" = 'call-5' ]
   [ "$(jq -r '[.input[] | select(.role? == "assistant") | .content[]?.type] | any(. == "function_call")' <<<"$payload_json")" = 'false' ]
+}
+
+@test "copilot responses payload supports large request bodies without argv overflow" {
+  local large_text request_json payload_json
+
+  large_text="$(head -c 3145728 </dev/zero | tr '\0' 'x')"
+  request_json="{\"model\":\"gpt-5.4\",\"system_prompt\":\"You are BAISH.\",\"tool_use_instructions\":\"Use tools structurally.\",\"skills\":[],\"tools\":[],\"messages\":[{\"role\":\"user\",\"content\":\"${large_text}\"}]}"
+
+  payload_json="$(provider_copilot_build_responses_payload_json "$request_json")"
+
+  [ "$(jq -r '.model' <<<"$payload_json")" = 'gpt-5.4' ]
+  [ "$(jq -r '.input[2].role' <<<"$payload_json")" = 'user' ]
+  [ "$(jq -r '.input[2].content[0].text | length' <<<"$payload_json")" = '3145728' ]
 }
 
 @test "copilot claude models use anthropic messages api" {

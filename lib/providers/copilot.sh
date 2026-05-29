@@ -816,13 +816,13 @@ provider_copilot_request_initiator() {
   local request_json="$1"
   local last_role
 
-  last_role="$(jq -nr --argjson request "$request_json" '
-    if (($request.messages // []) | length) == 0 then
+  last_role="$(jq -r '
+    if ((.messages // []) | length) == 0 then
       "user"
     else
-      (($request.messages // [])[-1].role // "user")
+      ((.messages // [])[-1].role // "user")
     end
-  ' 2>/dev/null || true)"
+  ' <<<"$request_json" 2>/dev/null || true)"
 
   if [[ "$last_role" == 'user' || -z "$last_role" ]]; then
     printf 'user\n'
@@ -976,9 +976,9 @@ provider_copilot_model_family() {
 provider_copilot_build_chat_payload_json() {
   local request_json="$1"
 
-  jq -cn --argjson request "$request_json" '
+  jq -c '
     def skill_messages:
-      ($request.skills // [])
+      (.skills // [])
       | map({role: "system", content: ("Loaded skill: " + .name + "\n" + .content)});
 
     def assistant_tool_calls:
@@ -1011,11 +1011,11 @@ provider_copilot_build_chat_payload_json() {
       end;
 
     {
-      model: $request.model,
+      model: .model,
       stream: false,
       tool_choice: "auto",
       parallel_tool_calls: true,
-      tools: (($request.tools // []) | map({
+      tools: ((.tools // []) | map({
         type: "function",
         function: {
           name: .name,
@@ -1025,20 +1025,20 @@ provider_copilot_build_chat_payload_json() {
       })),
       messages: (
         [
-          {role: "system", content: $request.system_prompt},
-          {role: "system", content: $request.tool_use_instructions}
+          {role: "system", content: .system_prompt},
+          {role: "system", content: .tool_use_instructions}
         ]
         + skill_messages
-        + (($request.messages // []) | map(map_message))
+        + ((.messages // []) | map(map_message))
       )
     }
-  '
+  ' <<<"$request_json"
 }
 
 provider_copilot_build_responses_payload_json() {
   local request_json="$1"
 
-  jq -cn --argjson request "$request_json" '
+  jq -c '
     def text_message(role; text):
       {role: role, content: [{type: "input_text", text: text}]};
 
@@ -1065,12 +1065,12 @@ provider_copilot_build_responses_payload_json() {
       end;
 
     {
-      model: $request.model,
+      model: .model,
       stream: false,
       store: false,
       tool_choice: "auto",
       parallel_tool_calls: true,
-      tools: (($request.tools // []) | map({
+      tools: ((.tools // []) | map({
         type: "function",
         name: .name,
         description: (.description // ""),
@@ -1078,26 +1078,26 @@ provider_copilot_build_responses_payload_json() {
       })),
       input: (
         [
-          text_message("system"; $request.system_prompt),
-          text_message("system"; $request.tool_use_instructions)
+          text_message("system"; .system_prompt),
+          text_message("system"; .tool_use_instructions)
         ]
-        + (($request.skills // []) | map(text_message("system"; ("Loaded skill: " + .name + "\n" + .content))))
-        + [(($request.messages // [])[] | message_items[])]
+        + ((.skills // []) | map(text_message("system"; ("Loaded skill: " + .name + "\n" + .content))))
+        + [((.messages // [])[] | message_items[])]
       )
     }
-  '
+  ' <<<"$request_json"
 }
 
 provider_copilot_build_anthropic_payload_json() {
   local request_json="$1"
 
-  jq -cn --argjson request "$request_json" '
+  jq -c '
     def system_blocks:
       [
-        {type: "text", text: $request.system_prompt},
-        {type: "text", text: $request.tool_use_instructions}
+        {type: "text", text: .system_prompt},
+        {type: "text", text: .tool_use_instructions}
       ]
-      + (($request.skills // []) | map({type: "text", text: ("Loaded skill: " + .name + "\n" + .content)}));
+      + ((.skills // []) | map({type: "text", text: ("Loaded skill: " + .name + "\n" + .content)}));
 
     def assistant_content:
       ((if .content == null then [] else [{type: "text", text: .content}] end)
@@ -1128,24 +1128,24 @@ provider_copilot_build_anthropic_payload_json() {
       end;
 
     {
-      model: $request.model,
+      model: .model,
       stream: false,
       max_tokens: 32000,
       system: system_blocks,
-      tools: (($request.tools // []) | map({
+      tools: ((.tools // []) | map({
         name: .name,
         description: (.description // ""),
         input_schema: (.input_schema // {type: "object", properties: {}, additionalProperties: false})
       })),
-      messages: (($request.messages // []) | map(map_message))
+      messages: ((.messages // []) | map(map_message))
     }
-  '
+  ' <<<"$request_json"
 }
 
 provider_copilot_normalize_chat_response() {
   local response_json="$1"
 
-  jq -cn --argjson response "$response_json" '
+  jq -c '
     def text_content(value):
       if value == null then
         null
@@ -1172,9 +1172,9 @@ provider_copilot_normalize_chat_response() {
       end;
 
     {
-      assistant_text: text_content($response.choices[0].message.content),
+      assistant_text: text_content(.choices[0].message.content),
       tool_calls: (
-        ($response.choices[0].message.tool_calls // [])
+        (.choices[0].message.tool_calls // [])
         | to_entries
         | map({
             id: (.value.id // ("copilot-call-" + ((.key + 1) | tostring))),
@@ -1186,18 +1186,18 @@ provider_copilot_normalize_chat_response() {
           })
       )
     }
-  '
+  ' <<<"$response_json"
 }
 
 provider_copilot_normalize_responses_response() {
   local response_json="$1"
 
-  jq -cn --argjson response "$response_json" '
+  jq -c '
     def response_output:
-      if ($response.output? | type) == "array" then
-        $response.output
-      elif ($response.response? | .output? | type) == "array" then
-        $response.response.output
+      if (.output? | type) == "array" then
+        .output
+      elif (.response? | .output? | type) == "array" then
+        .response.output
       else
         []
       end;
@@ -1244,17 +1244,17 @@ provider_copilot_normalize_responses_response() {
       assistant_text: response_text,
       tool_calls: response_tool_calls
     }
-  '
+  ' <<<"$response_json"
 }
 
 provider_copilot_normalize_anthropic_response() {
   local response_json="$1"
 
-  jq -cn --argjson response "$response_json" '
+  jq -c '
     {
       assistant_text: (
         [
-          $response.content[]?
+          .content[]?
           | select((.type // "") == "text")
           | (.text // "")
         ]
@@ -1263,7 +1263,7 @@ provider_copilot_normalize_anthropic_response() {
       ),
       tool_calls: (
         [
-          $response.content[]?
+          .content[]?
           | select((.type // "") == "tool_use")
           | {
               id: (.id // "copilot-call-1"),
@@ -1273,7 +1273,7 @@ provider_copilot_normalize_anthropic_response() {
         ]
       )
     }
-  '
+  ' <<<"$response_json"
 }
 
 provider_copilot_chat() {
