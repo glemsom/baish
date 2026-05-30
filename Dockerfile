@@ -23,6 +23,10 @@ RUN apt-get update \
       sed \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh -o /tmp/rtk-install.sh \
+    && RTK_INSTALL_DIR=/usr/local/bin bash /tmp/rtk-install.sh \
+    && rm -f /tmp/rtk-install.sh
+
 RUN if [[ ! -e /usr/bin/bat && -x /usr/bin/batcat ]]; then \
       ln -s /usr/bin/batcat /usr/bin/bat; \
     fi
