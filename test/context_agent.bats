@@ -166,7 +166,7 @@ strip_ansi() {
   [ "$(baish_agent_phase_label '{"assistant_text":null,"tool_calls":[{"id":"bash-1","name":"bash","arguments":{"command":"printf hi"}}],"phase":"Compare impl with tests"}')" = 'Compare impl with tests' ]
 }
 
-@test "first chat auto-connects and then returns the assistant response" {
+@test "first chat auto-connects and then returns the reply block" {
   local stub_bin auth_file state_file
 
   stub_bin="$BATS_TEST_TMPDIR/bin"
@@ -182,7 +182,8 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Hello BAISH'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Selected model: mock-text'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Connected provider: mock'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock connected hello.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Reply'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Mock connected hello.'* ]]
 
   auth_file="$TEST_HOME/.baish/auth/mock.json"
   state_file="$TEST_HOME/.baish/state.json"
@@ -213,10 +214,30 @@ strip_ansi() {
   [ "$CAPTURE_STATUS" -eq 0 ]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Started new chat.'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Second chat'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock fresh chat.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Reply'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Mock fresh chat.'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'Connected provider: mock'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '.[0].content' <<<"$messages_json")" = 'Second chat' ]
+}
+
+@test "assistant text renders in a boxed reply block" {
+  baish_provider_call mock auth
+  baish_state_set_selected_provider_model 'mock' 'mock-text'
+  BAISH_ACTIVE_PROVIDER='mock'
+  BAISH_ACTIVE_MODEL='mock-text'
+  export BAISH_MOCK_SCENARIO='simple_text'
+  export BAISH_MOCK_FINAL_TEXT=$'Committed changes to git:\n- Modified files: lib/agent.sh, test/context_agent.bats\n- Commit message: "Update agent.sh and context_agent.bats"'
+
+  capture_process_input_line 'Commit changes to git'
+
+  [ "$CAPTURE_STATUS" -eq 0 ]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╭─ Reply'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Committed changes to git:'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ - Modified files: lib/agent.sh, test/context_agent.bats'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ - Commit message: "Update agent.sh and context_agent.bats"'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" != *'completed'* ]]
 }
 
 @test "agent loop renders a successful tool round and appends the structured tool result" {
@@ -241,7 +262,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ✅ completed'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool> bash'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool_result>'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed the single-tool scenario.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Mock completed the single-tool scenario.'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '4' ]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '1' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'single-tool-output' ]
@@ -299,7 +320,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf mixed-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'     mixed-output'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed the mixed tool scenario.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Mock completed the mixed tool scenario.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '4' ]
 }
 
@@ -342,7 +363,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ❌ bash failed (exit 3)'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'     stderr:'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'second-output'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed 2 tool calls.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'│ Mock completed 2 tool calls.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'first-output' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][1].result.data.stderr' <<<"$messages_json")" = 'second-output' ]

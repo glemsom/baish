@@ -754,6 +754,36 @@ baish_agent_print_tool_round_detail() {
   done <<<"$detail"
 }
 
+baish_agent_print_assistant_response() {
+  local assistant_text="$1"
+  local line
+
+  printf '%s╭─%s %sReply%s\n' \
+    "$(baish_agent_style_dim)" \
+    "$(baish_agent_style_reset)" \
+    "$(baish_agent_style_cyan)" \
+    "$(baish_agent_style_reset)"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -n "$line" ]]; then
+      printf '%s│%s %s%s%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)" \
+        "$(baish_agent_style_bold_white)" \
+        "$line" \
+        "$(baish_agent_style_reset)"
+    else
+      printf '%s│%s\n' \
+        "$(baish_agent_style_dim)" \
+        "$(baish_agent_style_reset)"
+    fi
+  done <<<"$assistant_text"
+
+  printf '%s╰─%s\n' \
+    "$(baish_agent_style_dim)" \
+    "$(baish_agent_style_reset)"
+}
+
 baish_agent_run_user_message() {
   local user_text="$1"
   local provider model request_json response_json assistant_text
@@ -806,7 +836,7 @@ baish_agent_run_user_message() {
     baish_agent_append_assistant_response "$response_json" || return 1
 
     if [[ -n "$assistant_text" ]]; then
-      printf '🤖 %s\n' "$assistant_text"
+      baish_agent_print_assistant_response "$assistant_text"
     fi
 
     if (( tool_call_count == 0 )); then
