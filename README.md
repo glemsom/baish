@@ -75,6 +75,38 @@ Example:
 ❯ Inspect this repository and summarize the current tool support.
 ```
 
+### Docker
+
+The repository includes a `Dockerfile` that installs BAISH, its runtime dependencies, and a few common Bash development tools (`bats`, `git`, `make`, `gh`). The image runs BAISH by default as the non-root `baish` user.
+
+Build it with UID/GID aligned to your host user so bind-mounted files in `/workspace` stay writable:
+
+```bash
+docker build \
+  --build-arg BAISH_UID="$(id -u)" \
+  --build-arg BAISH_GID="$(id -g)" \
+  -t baish .
+```
+
+Then use a shell function like this to launch BAISH against the current folder:
+
+```bash
+baishc() {
+  mkdir -p "$HOME/.baish"
+  docker run --rm -it \
+    -v "$PWD:/workspace" \
+    -v "$HOME/.baish:/home/baish/.baish" \
+    baish
+}
+```
+
+That mounts:
+
+- the current directory at `/workspace`
+- your BAISH state directory at `/home/baish/.baish`
+
+If you ever need a different numeric UID/GID in the container, rebuild the image with different `BAISH_UID` and `BAISH_GID` values.
+
 ### Status Footer
 
 The interactive idle screen shows a one-line Status Footer below the active input line.

@@ -1,0 +1,6 @@
+.git/
+.baish/
+*.swp
+*.swo
+*~
+tmp/
