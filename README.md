@@ -68,8 +68,8 @@ Copilot auth details:
 Example:
 
 ```text
-baish> /connect
-baish> Inspect this repository and summarize the current tool support.
+❯ /connect
+❯ Inspect this repository and summarize the current tool support.
 ```
 
 ### Multiline drafts
@@ -142,8 +142,8 @@ BAISH_PROVIDER=mock ./bin/baish
 Then connect and chat as usual:
 
 ```text
-baish> /connect
-baish> List the current skills behavior.
+❯ /connect
+❯ List the current skills behavior.
 ```
 
 The mock provider is intended for local development, Bats coverage, and agent-loop work without network access.
@@ -219,7 +219,7 @@ Example skill files:
 Example usage:
 
 ```text
-baish> /skill:tdd Implement the next failing test.
+❯ /skill:tdd Implement the next failing test.
 ```
 
 ## Configuration

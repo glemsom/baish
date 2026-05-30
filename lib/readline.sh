@@ -215,7 +215,7 @@ baish_readline_loop() {
   local interactive=0
 
   baish_session_init
-  prompt='baish> '
+  prompt='❯ '
   draft=''
 
   if [[ -t 0 && -t 1 ]]; then
@@ -250,7 +250,7 @@ baish_readline_loop() {
     if (( read_status != 0 )); then
       if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" || $read_status -eq 130 ]]; then
         draft=''
-        prompt='baish> '
+        prompt='❯ '
         if (( interactive == 1 )); then
           printf '\n'
         fi
@@ -273,18 +273,18 @@ baish_readline_loop() {
     if [[ -n "$draft" ]]; then
       line="${draft}${line}"
       draft=''
-      prompt='baish> '
+      prompt='❯ '
     fi
 
     if ! baish_process_input_line "$line"; then
       if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" && $interactive -eq 1 ]]; then
         printf '\n'
       fi
-      prompt='baish> '
+      prompt='❯ '
       continue
     fi
 
-    prompt='baish> '
+    prompt='❯ '
 
     if [[ "${BAISH_SESSION_EXIT_REQUESTED:-0}" == "1" ]]; then
       break
