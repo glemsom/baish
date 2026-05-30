@@ -790,10 +790,29 @@ baish_agent_print_tool_round_item() {
 }
 
 baish_agent_print_tool_round_result_summary() {
-  local summary="$1"
+  local status="$1"
+  local summary="$2"
+  local color icon
 
-  printf '   %s↳ %s%s\n' \
+  case "$status" in
+    success)
+      color="$(baish_agent_style_green)"
+      icon='✅'
+      ;;
+    warning)
+      color="$(baish_agent_style_yellow)"
+      icon='⚠️'
+      ;;
+    *)
+      color="$(baish_agent_style_red)"
+      icon='❌'
+      ;;
+  esac
+
+  printf '   %s↳ %s%s %s%s\n' \
     "$(baish_agent_style_dim)" \
+    "$color" \
+    "$icon" \
     "$summary" \
     "$(baish_agent_style_reset)"
 }
@@ -1086,6 +1105,7 @@ baish_agent_run_streaming() {
     round_status='success'
     round_footer='completed'
     round_detail=''
+    has_non_read_tool=0
 
     while IFS= read -r tool_call_json; do
       [[ -z "$tool_call_json" ]] && continue
@@ -1101,6 +1121,7 @@ baish_agent_run_streaming() {
       tool_arguments="$(jq -c '.arguments' <<<"$tool_call_json")" || return 1
 
       if [[ "$tool_name" != 'read' ]]; then
+        has_non_read_tool=1
         tool_call_summary="$(baish_agent_summarize_tool_call "$tool_name" "$tool_arguments")" || return 1
         baish_agent_print_tool_round_item "$tool_name" "$tool_call_summary"
       fi
@@ -1114,7 +1135,7 @@ baish_agent_run_streaming() {
 
       if [[ "$tool_name" != 'read' ]]; then
         if [[ -n "$tool_render_summary" ]]; then
-          baish_agent_print_tool_round_result_summary "$tool_render_summary"
+          baish_agent_print_tool_round_result_summary "$tool_render_status" "$tool_render_summary"
         fi
         if [[ -n "$tool_render_detail" ]]; then
           baish_agent_print_tool_round_result_detail "$tool_render_detail"
@@ -1130,7 +1151,9 @@ baish_agent_run_streaming() {
       baish_agent_append_tool_result "$tool_call_id" "$tool_name" "$tool_result" || return 1
     done < <(jq -c '.tool_calls[]' <<<"$response_json")
 
-    baish_agent_print_tool_round_end "$round_status" "$round_footer"
+    if (( has_non_read_tool == 0 )); then
+      baish_agent_print_tool_round_end "$round_status" "$round_footer"
+    fi
     if [[ -n "$round_detail" ]]; then
       baish_agent_print_tool_round_detail "$round_detail"
     fi
@@ -1223,6 +1246,7 @@ baish_agent_run_user_message() {
     round_status='success'
     round_footer='completed'
     round_detail=''
+    has_non_read_tool=0
 
     while IFS= read -r tool_call_json; do
       [[ -z "$tool_call_json" ]] && continue
@@ -1238,6 +1262,7 @@ baish_agent_run_user_message() {
       tool_arguments="$(jq -c '.arguments' <<<"$tool_call_json")" || return 1
 
       if [[ "$tool_name" != 'read' ]]; then
+        has_non_read_tool=1
         tool_call_summary="$(baish_agent_summarize_tool_call "$tool_name" "$tool_arguments")" || return 1
         baish_agent_print_tool_round_item "$tool_name" "$tool_call_summary"
       fi
@@ -1251,7 +1276,7 @@ baish_agent_run_user_message() {
 
       if [[ "$tool_name" != 'read' ]]; then
         if [[ -n "$tool_render_summary" ]]; then
-          baish_agent_print_tool_round_result_summary "$tool_render_summary"
+          baish_agent_print_tool_round_result_summary "$tool_render_status" "$tool_render_summary"
         fi
         if [[ -n "$tool_render_detail" ]]; then
           baish_agent_print_tool_round_result_detail "$tool_render_detail"
@@ -1267,7 +1292,9 @@ baish_agent_run_user_message() {
       baish_agent_append_tool_result "$tool_call_id" "$tool_name" "$tool_result" || return 1
     done < <(jq -c '.tool_calls[]' <<<"$response_json")
 
-    baish_agent_print_tool_round_end "$round_status" "$round_footer"
+    if (( has_non_read_tool == 0 )); then
+      baish_agent_print_tool_round_end "$round_status" "$round_footer"
+    fi
     if [[ -n "$round_detail" ]]; then
       baish_agent_print_tool_round_detail "$round_detail"
     fi
