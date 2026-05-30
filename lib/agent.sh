@@ -116,6 +116,10 @@ baish_agent_missing_connection() {
     return 0
   fi
 
+  if declare -F baish_provider_has_env_auth >/dev/null 2>&1 && baish_provider_has_env_auth "$provider"; then
+    return 1
+  fi
+
   auth_file="$(baish_state_auth_file "$provider")" || return 1
   if [[ ! -f "$auth_file" ]]; then
     return 0

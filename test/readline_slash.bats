@@ -16,6 +16,7 @@ setup() {
   cd "$TEST_PROJECT"
 
   source "$REPO_ROOT/lib/state.sh"
+  source "$REPO_ROOT/lib/providers.sh"
   source "$REPO_ROOT/lib/slash.sh"
   source "$REPO_ROOT/lib/readline.sh"
 
@@ -39,6 +40,14 @@ setup() {
   [ "${#BAISH_SLASH_COMMANDS[@]}" -eq 1 ]
   [ "${BAISH_SLASH_COMMANDS[0]}" = 'connect' ]
   [ -z "${BAISH_SLASH_ARGS[0]}" ]
+  [ -z "$BAISH_SLASH_REMAINING_TEXT" ]
+}
+
+@test "slash parser handles /provider" {
+  baish_slash_parse_line '/provider'
+
+  [ "${#BAISH_SLASH_COMMANDS[@]}" -eq 1 ]
+  [ "${BAISH_SLASH_COMMANDS[0]}" = 'provider' ]
   [ -z "$BAISH_SLASH_REMAINING_TEXT" ]
 }
 
@@ -92,6 +101,22 @@ setup() {
 
   [ "$status" -eq 0 ]
   [ "$output" = 'Unknown slash command: /skill' ]
+}
+
+@test "/provider:name reports a helpful error" {
+  run bash -lc '
+    source "$1/lib/state.sh"
+    source "$1/lib/slash.sh"
+    HOME="$2"
+    baish_state_init
+    if baish_slash_parse_line "/provider:kilo"; then
+      exit 99
+    fi
+    printf "%s\n" "$BAISH_SLASH_PARSE_ERROR"
+  ' bash "$REPO_ROOT" "$TEST_HOME"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = 'BAISH does not support /provider:<name>. Use /provider to open the provider picker.' ]
 }
 
 @test "/exit aliases /quit" {
@@ -154,6 +179,8 @@ setup() {
     cd "$3"
     baish_state_init
     baish_session_reset
+    baish_slash_completion_candidates "/p" 2
+    printf -- "--\n"
     baish_slash_completion_candidates "/n" 2
     printf -- "--\n"
     baish_slash_completion_candidates "/sk" 3
@@ -164,7 +191,22 @@ setup() {
   ' bash "$REPO_ROOT" "$TEST_HOME" "$TEST_PROJECT"
 
   [ "$status" -eq 0 ]
-  [[ "$output" == $'/new\n--\n/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
+  [[ "$output" == $'/provider\n--\n/new\n--\n/skill:\n--\n/skill:tdd\n--\n/skill:'* ]]
+}
+
+@test "provider picker entries show only selectable providers sorted by label with an active marker" {
+  BAISH_PROVIDER_DISCOVERY_DONE=1
+  BAISH_PROVIDER_IDS=(gamma alpha hidden)
+  declare -gA BAISH_PROVIDER_METADATA_JSON=()
+  BAISH_PROVIDER_METADATA_JSON[gamma]='{"id":"gamma","label":"Zulu","desc":"Gamma desc","selectable":true}'
+  BAISH_PROVIDER_METADATA_JSON[alpha]='{"id":"alpha","label":"alpha","desc":"Alpha desc","selectable":true}'
+  BAISH_PROVIDER_METADATA_JSON[hidden]='{"id":"hidden","label":"Hidden","desc":"Hidden desc","selectable":false}'
+  BAISH_PROCESS_SELECTED_PROVIDER='gamma'
+
+  run baish_provider_selection_entries 'gamma'
+
+  [ "$status" -eq 0 ]
+  [ "$output" = $'alpha — Alpha desc\talpha\nZulu — Gamma desc (active)\tgamma' ]
 }
 
 @test "readline insert text mutates READLINE_LINE and READLINE_POINT" {

@@ -11,8 +11,8 @@ Tool activity is rendered in rich terminal blocks with emoji, box-drawing charac
 - GNU/Linux only
 - Bash-first implementation
 - Readline-style prompt
-- GitHub Copilot as the real provider
-- Mock provider for offline demos/tests
+- Dynamic multi-provider discovery from `lib/providers/*.sh`
+- GitHub Copilot, Kilo Gateway, and Mock providers
 - Autonomous tool execution with no approval loop
 - No session persistence between runs
 - No transcript logging by default
@@ -51,15 +51,19 @@ You should see:
 BAISH ready. Use /quit to exit.
 ```
 
-Typical first-run flow with Copilot:
+Typical first-run flow:
 
 1. Start BAISH.
-2. Run `/connect`.
-3. If `COPILOT_GITHUB_TOKEN` is set, BAISH uses it as the GitHub token input to the normal Copilot token-exchange flow.
-4. Otherwise, BAISH falls back to `GH_TOKEN`, then `GITHUB_TOKEN`, with the same exchange flow.
-5. If no env token is set, follow the device-flow instructions in the terminal.
-6. Pick a model through `fzf`.
-7. Enter a normal prompt.
+2. Run `/provider` to choose a provider, or keep the default provider.
+3. Run `/connect`.
+4. Pick a model through `fzf`.
+5. Enter a normal prompt.
+
+Copilot auth details:
+
+- If `COPILOT_GITHUB_TOKEN` is set, BAISH uses it as the GitHub token input to the normal Copilot token-exchange flow.
+- Otherwise, BAISH falls back to `GH_TOKEN`, then `GITHUB_TOKEN`, with the same exchange flow.
+- If no env token is set, follow the device-flow instructions in the terminal.
 
 Example:
 
@@ -101,7 +105,33 @@ Exit with:
 
 `/exit` is an alias for `/quit`.
 
-## Offline mock provider
+## Providers
+
+BAISH discovers providers dynamically from `lib/providers/*.sh` at startup and fails fast if a provider contract is invalid.
+
+### GitHub Copilot
+
+Use the default provider or set it explicitly:
+
+```bash
+BAISH_PROVIDER=copilot ./bin/baish
+```
+
+### Kilo Gateway
+
+Kilo Gateway is a first-class provider with OpenAI-compatible model listing, chat completions, and tool calling.
+
+```bash
+BAISH_PROVIDER=kilo ./bin/baish
+```
+
+Auth behavior:
+
+- `KILO_API_KEY` overrides saved Kilo auth for the current BAISH process.
+- Otherwise BAISH uses `~/.baish/auth/kilo.json` when available.
+- If no saved key exists, BAISH prompts with hidden input.
+
+### Offline mock provider
 
 For offline demos and tests, run BAISH with the mock provider:
 
@@ -123,6 +153,7 @@ The mock provider is intended for local development, Bats coverage, and agent-lo
 Supported slash commands:
 
 - `/connect` — authenticate/connect the active provider and choose a model
+- `/provider` — choose a provider interactively with `fzf`
 - `/new` — start a fresh chat by clearing the current conversation messages while keeping the current connection, model, and loaded skills
 - `/model` — choose a model interactively with `fzf`
 - `/skill:<name>` — load a skill into the current BAISH process
@@ -195,11 +226,12 @@ baish> /skill:tdd Implement the next failing test.
 
 BAISH uses environment variables for configuration in V1.
 
-- `BAISH_PROVIDER` — active provider, default `copilot`
-- `BAISH_MODEL` — process-local model override; wins over the persisted model
+- `BAISH_PROVIDER` — startup default provider, default `copilot`
+- `BAISH_MODEL` — startup model override; wins over the persisted model until an interactive choice overrides it for the current process
 - `COPILOT_GITHUB_TOKEN` — preferred GitHub token input for Copilot `/connect`, `/model`, and chat; BAISH exchanges it for a runtime Copilot token
 - `GH_TOKEN` — fallback GitHub token input when `COPILOT_GITHUB_TOKEN` is unset
 - `GITHUB_TOKEN` — fallback GitHub token input when `COPILOT_GITHUB_TOKEN` and `GH_TOKEN` are unset
+- `KILO_API_KEY` — Kilo Gateway API key for the current process
 - `BAISH_MAX_TOOL_ROUNDS` — max tool rounds per request, default `20`
 - `BAISH_MAX_TOOL_CALLS` — max tool calls per request, default `100`
 - `BAISH_BASH_TIMEOUT` — shell tool timeout in seconds, default `120`
@@ -214,7 +246,7 @@ COPILOT_GITHUB_TOKEN=... ./bin/baish
 BAISH_DEBUG=1 ./bin/baish
 ```
 
-If `BAISH_MODEL` is set, it stays active for the current process even if `/model` updates the persisted model selection.
+Interactive `/provider`, `/connect`, and `/model` choices update persisted selection and override startup env defaults for the current BAISH process.
 
 ## State and logs
 
@@ -224,6 +256,7 @@ BAISH stores its state under `~/.baish/`:
 ~/.baish/
   auth/
     copilot.json
+    kilo.json
   state.json
   logs/
   skills/
@@ -234,6 +267,7 @@ Notes:
 - Provider auth files are plain JSON.
 - Auth/token files are written with restrictive permissions.
 - In env-token Copilot mode, BAISH persists metadata-only auth state and does not store `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, or the exchanged Copilot bearer token in `~/.baish/auth/copilot.json`.
+- In env-token Kilo mode, BAISH does not overwrite `~/.baish/auth/kilo.json`.
 - `logs/` is only created when `BAISH_DEBUG=1`.
 - Debug logs are metadata-only and do not persist full transcripts by default.
 

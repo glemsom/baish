@@ -46,6 +46,14 @@ baish_slash_parse_token() {
       BAISH_SLASH_TOKEN_COMMAND='connect'
       return 0
       ;;
+    /provider)
+      BAISH_SLASH_TOKEN_COMMAND='provider'
+      return 0
+      ;;
+    /provider:*)
+      BAISH_SLASH_TOKEN_ERROR='BAISH does not support /provider:<name>. Use /provider to open the provider picker.'
+      return 1
+      ;;
     /quit|/exit)
       BAISH_SLASH_TOKEN_COMMAND='quit'
       return 0
@@ -246,7 +254,50 @@ baish_provider_models_to_tsv() {
   ' <<<"$models_json"
 }
 
-baish_model_select_interactive() {
+baish_provider_selection_entries() {
+  local active_provider="$1"
+  local metadata_json
+
+  metadata_json="$(baish_provider_all_metadata_json)" || return 1
+  jq -r --arg active_provider "$active_provider" '
+    map(select(.selectable == true))
+    | sort_by((.label // .id) | ascii_downcase)
+    | .[]
+    | [
+        ((.label // .id) + " — " + .desc + (if .id == $active_provider then " (active)" else "" end)),
+        .id
+      ]
+    | @tsv
+  ' <<<"$metadata_json"
+}
+
+baish_provider_select_interactive() {
+  local active_provider entries selection fzf_status selected_provider
+
+  active_provider="$(baish_config_active_provider 2>/dev/null || true)"
+  entries="$(baish_provider_selection_entries "$active_provider")" || return 1
+
+  if [[ -z "$entries" ]]; then
+    printf 'BAISH provider picker does not have any selectable providers.\n' >&2
+    return 1
+  fi
+
+  fzf_status=0
+  selection="$(printf '%s\n' "$entries" | fzf --prompt='provider> ' --with-nth=1 --delimiter=$'\t')" || fzf_status=$?
+  if [[ $fzf_status -ne 0 ]]; then
+    printf 'Provider selection cancelled.\n' >&2
+    return "$fzf_status"
+  fi
+
+  selected_provider="${selection#*$'\t'}"
+  if [[ "$selected_provider" == "$selection" || -z "$selected_provider" ]]; then
+    selected_provider="$selection"
+  fi
+
+  printf '%s\n' "$selected_provider"
+}
+
+baish_model_pick_interactive() {
   local provider="${1:-}"
   local models_json entries selection fzf_status selected_model
 
@@ -274,25 +325,205 @@ baish_model_select_interactive() {
     selected_model="$selection"
   fi
 
-  baish_state_set_selected_provider_model "$provider" "$selected_model" || return 1
+  printf '%s\n' "$selected_model"
+}
 
-  BAISH_ACTIVE_PROVIDER="$provider"
-  if [[ -n "${BAISH_MODEL:-}" ]]; then
-    BAISH_ACTIVE_MODEL="$BAISH_MODEL"
-    printf 'Persisted model set to %s for provider %s; BAISH_MODEL keeps %s active in this process.\n' "$selected_model" "$provider" "$BAISH_MODEL"
-  else
-    BAISH_ACTIVE_MODEL="$selected_model"
-    printf 'Selected model: %s\n' "$selected_model"
+baish_model_select_interactive() {
+  local provider="${1:-}"
+  local selected_model
+
+  if [[ -z "$provider" ]]; then
+    provider="$(baish_config_active_provider)" || return 1
   fi
+
+  selected_model="$(baish_model_pick_interactive "$provider")" || return 1
+  baish_state_set_selected_provider_model "$provider" "$selected_model" || return 1
+  baish_state_set_process_active_provider_model "$provider" "$selected_model" || return 1
+  printf 'Selected model: %s\n' "$selected_model"
+}
+
+baish_provider_requires_validation() {
+  local provider="$1"
+  declare -F "provider_${provider}_validate_selection" >/dev/null 2>&1
+}
+
+baish_provider_validate_selection() {
+  local provider="$1"
+  local model="$2"
+
+  if baish_provider_requires_validation "$provider"; then
+    baish_provider_call "$provider" validate_selection "$model"
+    return $?
+  fi
+
+  return 0
+}
+
+baish_provider_setup_healthy() {
+  local provider="$1"
+  local model="$2"
+  local auth_file
+
+  if [[ -z "$provider" || -z "$model" ]]; then
+    return 1
+  fi
+
+  if baish_provider_has_env_auth "$provider"; then
+    return 0
+  fi
+
+  auth_file="$(baish_state_auth_file "$provider")" || return 1
+  [[ -f "$auth_file" ]]
+}
+
+baish_reconfigure_apply_selection() {
+  local provider="$1"
+  local model="$2"
+  local previous_provider="$3"
+  local previous_model="$4"
+  local healthy_before="$5"
+  local reset_chat="${6:-0}"
+
+  baish_state_set_selected_provider_model "$provider" "$model" || return 1
+  baish_state_set_process_active_provider_model "$provider" "$model" || return 1
+
+  if [[ "$provider" == "$previous_provider" && "$model" == "$previous_model" && "$healthy_before" == '1' ]]; then
+    return 10
+  fi
+
+  if [[ "$reset_chat" == '1' ]]; then
+    baish_session_reset_context_window >/dev/null || return 1
+    printf 'Started new chat.\n'
+  fi
+
+  return 0
+}
+
+baish_reconfigure_choose_model() {
+  local provider="$1"
+  local selected_model validation_status
+
+  while true; do
+    selected_model="$(baish_model_pick_interactive "$provider")" || return 1
+    baish_provider_validate_selection "$provider" "$selected_model"
+    validation_status=$?
+    case "$validation_status" in
+      0)
+        printf '%s\n' "$selected_model"
+        return 0
+        ;;
+      3)
+        continue
+        ;;
+      *)
+        return "$validation_status"
+        ;;
+    esac
+  done
+}
+
+baish_connect_provider_interactive() {
+  local provider="$1"
+  local reset_chat="${2:-0}"
+  local previous_provider previous_model healthy_before=0 selected_model apply_status
+
+  previous_provider="$(baish_config_active_provider 2>/dev/null || true)"
+  previous_model="$(baish_config_active_model 2>/dev/null || true)"
+  if baish_provider_setup_healthy "$previous_provider" "$previous_model"; then
+    healthy_before=1
+  fi
+
+  baish_provider_call "$provider" auth || return 1
+  selected_model="$(baish_reconfigure_choose_model "$provider")" || return 1
+
+  baish_reconfigure_apply_selection "$provider" "$selected_model" "$previous_provider" "$previous_model" "$healthy_before" "$reset_chat"
+  apply_status=$?
+  if [[ "$apply_status" != '0' && "$apply_status" != '10' ]]; then
+    return "$apply_status"
+  fi
+
+  printf 'Selected model: %s\n' "$selected_model"
+  printf 'Connected provider: %s\n' "$provider"
+
+  return "$apply_status"
 }
 
 baish_connect_current_provider() {
-  local provider
+  local provider status
 
   provider="$(baish_config_active_provider)" || return 1
+  baish_connect_provider_interactive "$provider" 0
+  status=$?
+  if [[ "$status" == '10' ]]; then
+    return 0
+  fi
+  return "$status"
+}
+
+baish_slash_connect_current_provider() {
+  local provider status
+
+  provider="$(baish_config_active_provider)" || return 1
+  baish_connect_provider_interactive "$provider" 1
+  status=$?
+  if [[ "$status" == '10' ]]; then
+    return 0
+  fi
+  return "$status"
+}
+
+baish_slash_model_select_interactive() {
+  local provider previous_provider previous_model healthy_before=0 selected_model status
+
+  provider="$(baish_config_active_provider)" || return 1
+  previous_provider="$(baish_config_active_provider 2>/dev/null || true)"
+  previous_model="$(baish_config_active_model 2>/dev/null || true)"
+  if baish_provider_setup_healthy "$previous_provider" "$previous_model"; then
+    healthy_before=1
+  fi
+
   baish_provider_call "$provider" auth || return 1
-  baish_model_select_interactive "$provider" || return 1
-  printf 'Connected provider: %s\n' "$provider"
+  selected_model="$(baish_reconfigure_choose_model "$provider")" || return 1
+  baish_reconfigure_apply_selection "$provider" "$selected_model" "$previous_provider" "$previous_model" "$healthy_before" 1
+  status=$?
+  if [[ "$status" != '0' && "$status" != '10' ]]; then
+    return "$status"
+  fi
+
+  printf 'Selected model: %s\n' "$selected_model"
+  if [[ "$status" == '10' ]]; then
+    return 0
+  fi
+  return "$status"
+}
+
+baish_slash_select_provider() {
+  local previous_provider previous_model healthy_before=0 selected_provider status
+
+  selected_provider="$(baish_provider_select_interactive)" || return $?
+  previous_provider="$(baish_config_active_provider 2>/dev/null || true)"
+  previous_model="$(baish_config_active_model 2>/dev/null || true)"
+
+  if baish_provider_setup_healthy "$previous_provider" "$previous_model"; then
+    healthy_before=1
+  fi
+
+  if [[ "$selected_provider" == "$previous_provider" && "$healthy_before" == '1' ]]; then
+    printf 'Active provider unchanged: %s\n' "$selected_provider"
+    return 0
+  fi
+
+  baish_connect_provider_interactive "$selected_provider" 1
+  status=$?
+  if [[ "$status" != '0' && "$status" != '10' ]]; then
+    return "$status"
+  fi
+
+  printf 'Selected provider: %s\n' "$selected_provider"
+  if [[ "$status" == '10' ]]; then
+    return 0
+  fi
+  return "$status"
 }
 
 baish_skill_project_path() {
@@ -401,7 +632,7 @@ baish_slash_completion_candidates() {
   local line="$1"
   local point="${2:-${#1}}"
   local before_cursor current_token prefix_context skill_name
-  local -a command_candidates=(/connect /quit /exit /new /model /skill:)
+  local -a command_candidates=(/connect /provider /quit /exit /new /model /skill:)
 
   before_cursor="${line:0:point}"
 
@@ -443,7 +674,10 @@ baish_slash_execute_command() {
 
   case "$command" in
     connect)
-      baish_connect_current_provider
+      baish_slash_connect_current_provider
+      ;;
+    provider)
+      baish_slash_select_provider
       ;;
     quit)
       BAISH_SESSION_EXIT_REQUESTED=1
@@ -453,7 +687,7 @@ baish_slash_execute_command() {
       baish_session_reset_context_window
       ;;
     model)
-      baish_model_select_interactive
+      baish_slash_model_select_interactive
       ;;
     skill)
       baish_skill_load "$argument"

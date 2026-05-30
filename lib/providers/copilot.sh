@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+provider_copilot_metadata() {
+  jq -cn '{"id": "copilot", "label": "GitHub Copilot", "desc": "GitHub Copilot Chat provider", "selectable": true, "auth_env_var": "COPILOT_GITHUB_TOKEN"}'
+}
+
+provider_copilot_has_env_auth() {
+  provider_copilot_has_env_token
+}
+
 provider_copilot_normalize_host() {
   local host="$1"
 

@@ -12,6 +12,10 @@ BAISH_REPO_ROOT="$(cd -- "$BAISH_LIB_DIR_PART/.." && pwd)"
 source "$BAISH_REPO_ROOT/lib/deps.sh"
 # shellcheck source=readline.sh
 source "$BAISH_REPO_ROOT/lib/readline.sh"
+# shellcheck source=prompt.sh
+source "$BAISH_REPO_ROOT/lib/prompt.sh"
+# shellcheck source=providers.sh
+source "$BAISH_REPO_ROOT/lib/providers.sh"
 # shellcheck source=slash.sh
 source "$BAISH_REPO_ROOT/lib/slash.sh"
 # shellcheck source=context.sh
@@ -24,10 +28,6 @@ source "$BAISH_REPO_ROOT/lib/tools.sh"
 source "$BAISH_REPO_ROOT/lib/log.sh"
 # shellcheck source=state.sh
 source "$BAISH_REPO_ROOT/lib/state.sh"
-# shellcheck source=providers/copilot.sh
-source "$BAISH_REPO_ROOT/lib/providers/copilot.sh"
-# shellcheck source=providers/mock.sh
-source "$BAISH_REPO_ROOT/lib/providers/mock.sh"
 
 baish_startup_use_color() {
   [[ -t 1 && "${TERM:-}" != "dumb" ]]
@@ -46,19 +46,24 @@ baish_startup_color() {
 }
 
 baish_startup_print_header() {
-  local bold cyan green dim reset
+  local bold cyan dim reset
+
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    printf 'BAISH ready. Use /quit to exit.\n'
+    return 0
+  fi
 
   if baish_startup_use_color; then
     bold="$(baish_startup_color bold)"
     cyan="$(baish_startup_color cyan)"
-    green="$(baish_startup_color green)"
     dim="$(baish_startup_color dim)"
     reset="$(baish_startup_color reset)"
   fi
 
   printf '%b\n' "${bold}${cyan}⚡ BAISH · AI Coding Assistant for Bash${reset}"
   printf '%b\n' "${dim}Slash commands:${reset}"
-  printf '  %b/connect%b        connect and choose a model\n' "$cyan" "$reset"
+  printf '  %b/connect%b        reconnect and choose a model\n' "$cyan" "$reset"
+  printf '  %b/provider%b       choose a provider interactively\n' "$cyan" "$reset"
   printf '  %b/new%b            start a fresh chat\n' "$cyan" "$reset"
   printf '  %b/model%b          pick a model interactively\n' "$cyan" "$reset"
   printf '  %b/skill:<name>%b   load a skill into this session\n' "$cyan" "$reset"
@@ -82,8 +87,10 @@ EOF
   baish_check_runtime_dependencies || return 1
   baish_state_init || return 1
   baish_log_init || return 1
+  baish_provider_discover || return 1
 
   active_provider="$(baish_config_active_provider)" || return 1
+  baish_provider_metadata_json "$active_provider" >/dev/null || return 1
   active_model="$(baish_config_active_model)" || return 1
 
   BAISH_ACTIVE_PROVIDER="$active_provider"

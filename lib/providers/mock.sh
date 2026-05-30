@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+provider_mock_metadata() {
+  jq -cn '{"id": "mock", "label": "Mock Provider", "desc": "Offline provider for local demos and tests", "selectable": true}'
+}
+
 provider_mock_auth() {
   baish_state_write_auth_json 'mock' '{"provider":"mock","authenticated":true}'
 }

@@ -1,0 +1,3 @@
+# Dynamic provider discovery and multi-provider BAISH
+
+BAISH will no longer assume GitHub Copilot is the only real provider. At startup it will source all `lib/providers/*.sh` files, require each file to define exactly one provider with function-based metadata (`id`, `label`, `description`, `selectable`) and the required provider actions, fail fast on invalid or duplicate provider contracts, and build `/provider` from the discovered selectable providers. This records the move from a Copilot-only assumption to a validated multi-provider architecture that can support providers like Kilo Gateway without a hardcoded registry.

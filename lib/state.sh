@@ -165,7 +165,22 @@ baish_state_read_auth_json() {
   baish_state_read_json_file "$(baish_state_auth_file "$1")"
 }
 
+baish_state_set_process_active_provider_model() {
+  local provider="$1"
+  local model="$2"
+
+  BAISH_PROCESS_SELECTED_PROVIDER="$provider"
+  BAISH_PROCESS_SELECTED_MODEL="$model"
+  BAISH_ACTIVE_PROVIDER="$provider"
+  BAISH_ACTIVE_MODEL="$model"
+}
+
 baish_config_active_provider() {
+  if [[ -n "${BAISH_PROCESS_SELECTED_PROVIDER:-}" ]]; then
+    printf '%s\n' "$BAISH_PROCESS_SELECTED_PROVIDER"
+    return 0
+  fi
+
   if [[ -n "${BAISH_PROVIDER:-}" ]]; then
     printf '%s\n' "$BAISH_PROVIDER"
     return 0
@@ -182,6 +197,11 @@ baish_config_active_provider() {
 }
 
 baish_config_active_model() {
+  if [[ -n "${BAISH_PROCESS_SELECTED_MODEL:-}" ]]; then
+    printf '%s\n' "$BAISH_PROCESS_SELECTED_MODEL"
+    return 0
+  fi
+
   if [[ -n "${BAISH_MODEL:-}" ]]; then
     printf '%s\n' "$BAISH_MODEL"
     return 0
