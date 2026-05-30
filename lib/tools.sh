@@ -355,7 +355,7 @@ baish_tool_bash_json() {
     return 1
   }
 
-  if timeout --signal=TERM --kill-after=5s "${timeout_seconds}s" env "${env_args[@]}" bash -lc "cd -- $(printf '%q' "$workdir") && $command" >"$stdout_file" 2>"$stderr_file"; then
+  if timeout --signal=TERM --kill-after=5s "${timeout_seconds}s" env "${env_args[@]}" bash -lc "cd -- $(printf '%q' "$workdir") && /usr/local/bin/rtk $command" >"$stdout_file" 2>"$stderr_file"; then
     exit_code=0
     timed_out=false
   else
