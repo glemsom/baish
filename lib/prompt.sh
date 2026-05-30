@@ -4,7 +4,7 @@ baish_prompt_secret() {
   local prompt="$1"
   local stty_state secret status
 
-  if [[ ! -t 0 || ! -t 1 ]]; then
+  if [[ ! -t 0 ]]; then
     printf 'BAISH cannot prompt for hidden input without an interactive terminal.\n' >&2
     return 1
   fi
