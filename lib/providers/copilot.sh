@@ -1312,6 +1312,10 @@ provider_copilot_chat() {
       ;;
   esac
 
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "llm_request" "$(jq -cn --arg provider copilot --argjson payload "$payload_json" '{provider: $provider, payload: $payload}')"
+  fi
+
   provider_copilot_http_request 'POST' "$url" "$headers_json" "$payload_json" || return 1
 
   if [[ "$BAISH_COPILOT_HTTP_STATUS" != '200' ]]; then
@@ -1745,6 +1749,9 @@ provider_copilot_chat_stream() {
       headers_json="$(provider_copilot_api_headers_json "$auth_json" "$request_json")" || return 1
       payload_json="$(provider_copilot_build_anthropic_payload_stream_json "$request_json")" || return 1
       url="$(provider_copilot_trim_trailing_slash "$api_base")/v1/messages"
+      if baish_transcript_log_enabled; then
+        baish_transcript_log_event "llm_request" "$(jq -cn --arg provider copilot --argjson payload "$payload_json" '{provider: $provider, payload: $payload}')"
+      fi
       provider_copilot_http_stream 'POST' "$url" "$headers_json" "$payload_json" \
         | _copilot_parse_sse_anthropic
       ;;
@@ -1752,6 +1759,9 @@ provider_copilot_chat_stream() {
       headers_json="$(provider_copilot_api_headers_json "$auth_json" "$request_json")" || return 1
       payload_json="$(provider_copilot_build_chat_payload_stream_json "$request_json")" || return 1
       url="$(provider_copilot_trim_trailing_slash "$api_base")/chat/completions"
+      if baish_transcript_log_enabled; then
+        baish_transcript_log_event "llm_request" "$(jq -cn --arg provider copilot --argjson payload "$payload_json" '{provider: $provider, payload: $payload}')"
+      fi
       provider_copilot_http_stream 'POST' "$url" "$headers_json" "$payload_json" \
         | _copilot_parse_sse_chat
       ;;

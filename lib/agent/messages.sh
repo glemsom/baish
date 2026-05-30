@@ -33,6 +33,11 @@ baish_agent_append_user_message() {
 
   message_json="$(jq -cn --arg content "$content" '{role: "user", content: $content}')" || return 1
   baish_agent_append_message_json "$message_json"
+  baish_maybe_log_system_prompt
+
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "user_message" "$(jq -cn --arg content "$content" '{content: $content}')" || true
+  fi
 }
 
 baish_agent_append_assistant_response() {
@@ -48,6 +53,11 @@ baish_agent_append_assistant_response() {
     + (if ($response.phase? // null) == null then {} else {phase: $response.phase} end)
   ')" || return 1
   baish_agent_append_message_json "$message_json"
+  baish_maybe_log_system_prompt
+
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "assistant_response" "$response_json" || true
+  fi
 }
 
 baish_agent_append_tool_result() {
@@ -63,5 +73,33 @@ baish_agent_append_tool_result() {
     '{role: "tool", tool_call_id: $tool_call_id, name: $tool_name, result: $result}')" || return 1
 
   baish_agent_append_message_json "$message_json"
+  baish_maybe_log_system_prompt
+
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "tool_result" "$(jq -cn \
+      --arg tool_call_id "$tool_call_id" \
+      --arg tool_name "$tool_name" \
+      --argjson result "$result_json" \
+      '{tool_call_id: $tool_call_id, tool_name: $tool_name, result: $result}')" || true
+  fi
 }
 
+baish_maybe_log_system_prompt() {
+  if baish_transcript_log_enabled; then
+    # Check if system prompt already logged in this session
+    if [[ -z "${BAISH_SESSION_TRANSCRIPT_SYSTEM_PROMPT_LOGGED:-}" ]]; then
+      local base_prompt tool_use_instructions skills_json system_prompt_array
+      base_prompt="$(baish_context_base_system_prompt)" || return 0
+      tool_use_instructions="$(baish_context_tool_use_instructions)" || return 0
+      skills_json="$(baish_context_skills_json)" || return 0
+      system_prompt_array="$(jq -cn --arg base "$base_prompt" --arg tooluse "$tool_use_instructions" --argjson skills "$skills_json" '
+  [
+    {role: "system", content: $base},
+    {role: "system", content: $tooluse}
+  ] + ($skills | map({role: "system", content: ("Loaded skill: " + .name + "\n" + .content)}))
+')" || return 0
+      baish_transcript_log_event "system_prompt" "$system_prompt_array" || true
+      BAISH_SESSION_TRANSCRIPT_SYSTEM_PROMPT_LOGGED=1
+    fi
+  fi
+}

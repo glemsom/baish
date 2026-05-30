@@ -415,6 +415,10 @@ provider_kilo_chat() {
   headers_json="$(provider_kilo_auth_headers_json "$api_key")" || return 1
   payload_json="$(provider_kilo_build_chat_payload_json "$request_json")" || return 1
 
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "llm_request" "$(jq -cn --arg provider kilo --argjson payload "$payload_json" '{provider: $provider, payload: $payload}')"
+  fi
+
   provider_kilo_http_request 'POST' "$(provider_kilo_chat_url)" "$headers_json" "$payload_json" || return 1
 
   if [[ "$BAISH_KILO_HTTP_STATUS" != '200' ]]; then
@@ -636,6 +640,9 @@ provider_kilo_chat_stream() {
   headers_json="$(provider_kilo_auth_headers_json "$api_key")" || return 1
   payload_json="$(provider_kilo_build_chat_payload_stream_json "$request_json")" || return 1
 
+  if baish_transcript_log_enabled; then
+    baish_transcript_log_event "llm_request" "$(jq -cn --arg provider kilo --argjson payload "$payload_json" '{provider: $provider, payload: $payload}')"
+  fi
   provider_kilo_http_stream 'POST' "$(provider_kilo_chat_url)" "$headers_json" "$payload_json" \
     | _kilo_parse_sse
 }
