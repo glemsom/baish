@@ -26,7 +26,6 @@ baish_check_runtime_dependencies() {
   baish_collect_command_issue curl curl issues
   baish_collect_command_issue jq jq issues
   baish_collect_command_issue fzf fzf issues
-  baish_collect_command_issue bat bat issues
 
   if ((${#issues[@]} == 0)); then
     return 0

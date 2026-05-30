@@ -9,7 +9,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       bash \
-      bat \
       bats \
       ca-certificates \
       coreutils \
@@ -29,9 +28,6 @@ RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/in
     && RTK_INSTALL_DIR=/usr/local/bin bash /tmp/rtk-install.sh \
     && rm -f /tmp/rtk-install.sh
 
-RUN if [[ ! -e /usr/bin/bat && -x /usr/bin/batcat ]]; then \
-      ln -s /usr/bin/batcat /usr/bin/bat; \
-    fi
 
 RUN groupadd --gid "$BAISH_GID" baish \
     && useradd --uid "$BAISH_UID" --gid "$BAISH_GID" --create-home --shell /bin/bash baish \

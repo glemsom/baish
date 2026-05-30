@@ -20,7 +20,7 @@ BAISH checks these at startup and exits with an error if any are missing:
 
 - bash >= 4
 - GNU coreutils, sed, awk/gawk, grep
-- curl, jq, fzf, bat
+- curl, jq, fzf
 
 Dev/test dependency:
 
