@@ -38,6 +38,13 @@ RUN groupadd --gid "$BAISH_GID" baish \
     && mkdir -p /workspace /home/baish/.baish /opt/baish \
     && chown -R baish:baish /workspace /home/baish /opt/baish
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "baish ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/baish \
+    && chmod 440 /etc/sudoers.d/baish \
+    && usermod -aG sudo baish
+
 COPY --chown=baish:baish . /opt/baish
 
 RUN if [[ -n "$GHOSTTY_TERMINFO_B64" ]]; then \
