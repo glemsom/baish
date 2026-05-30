@@ -1,0 +1,3 @@
+# Streaming LLM responses
+
+BAISH V1 will emit LLM responses as NDJSON events on stdout, with providers translating their native SSE transport into this internal format. The agent loop consumes NDJSON to print thinking and text tokens in real-time while falling back to synchronous mode when streaming is unavailable (`has_streaming` returns false, `BAISH_STREAMING=0`, or the provider lacks `chat_stream`). All three built-in providers (copilot, kilo, mock) implement the `chat_stream` action and `has_streaming` probe. Tool execution remains synchronous — only LLM response generation is streamed — keeping the agent loop simple and consistent with ADR-0001.

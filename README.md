@@ -11,6 +11,7 @@ V1 is a readline-style terminal application (not a full-screen TUI) that support
 - Providers discovered from: lib/providers/*.sh
 - Built-in providers: GitHub Copilot, Kilo Gateway, Mock
 - Autonomous tool execution (no approval prompts)
+- Streaming LLM responses (real-time thinking and text)
 - No session persistence or transcript logging by default
 
 ## Runtime dependencies
@@ -198,6 +199,7 @@ Example usage:
 - BAISH_MAX_TOOL_CALLS — max tool calls per request (default: 100)
 - BAISH_BASH_TIMEOUT — shell tool timeout seconds (default: 120)
 - BAISH_DEBUG — set to 1 to enable metadata-only debug logs
+- BAISH_STREAMING — set to 0 to disable streaming and force synchronous mode (default: 1)
 
 Examples:
 
@@ -249,7 +251,7 @@ See docs/copilot-research.md for implementation notes. Key points:
 - Persists minimal auth state under ~/.baish/auth/
 - Interactive model selection via fzf
 - Routes across multiple Copilot model-family endpoints
-- Non-streaming chat with provider-native tool calling
+- Streaming chat with real-time thinking and text output (copilot, kilo, mock)
 
 Live end-to-end validation requires access to a real Copilot account.
 
@@ -259,5 +261,5 @@ Live end-to-end validation requires access to a real Copilot account.
 - Readline-style UI (no full-screen TUI)
 - No approval prompts for tool execution
 - No session persistence or transcript logging by default
-- No streaming responses or automatic repo indexing
+- No automatic repo indexing
 - No binary file read/write support in V1

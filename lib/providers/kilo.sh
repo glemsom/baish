@@ -435,3 +435,207 @@ provider_kilo_chat() {
 
   printf '%s\n' "$response_json"
 }
+
+# ─── Streaming support ──────────────────────────────────────────────
+
+provider_kilo_has_streaming() {
+  printf 'true'
+}
+
+provider_kilo_http_stream() {
+  local method="$1"
+  local url="$2"
+  local headers_json="$3"
+  local body="${4-}"
+  local -a curl_args=()
+  local header_line
+
+  while IFS= read -r header_line; do
+    [[ -z "$header_line" ]] && continue
+    curl_args+=(-H "$header_line")
+  done < <(jq -r 'to_entries[] | "\(.key): \(.value)"' <<<"$headers_json")
+
+  # -N disables buffering so tokens arrive immediately
+  curl_args+=(-sS -N -X "$method")
+
+  if [[ -n "$body" ]]; then
+    curl "${curl_args[@]}" --data-binary @- "$url" <<<"$body" || return 1
+  else
+    curl "${curl_args[@]}" "$url" || return 1
+  fi
+}
+
+# Build streaming payload for chat_completions (stream: true)
+provider_kilo_build_chat_payload_stream_json() {
+  local request_json="$1"
+
+  jq -c '
+    def skill_messages:
+      (.skills // [])
+      | map({role: "system", content: ("Loaded skill: " + .name + "\n" + .content)});
+
+    def assistant_tool_calls:
+      (.tool_calls // [])
+      | map({
+          id: .id,
+          type: "function",
+          function: {
+            name: .name,
+            arguments: (.arguments | tojson)
+          }
+        });
+
+    def map_message:
+      if .role == "assistant" then
+        ({role: "assistant"}
+          + (if .content == null then {} else {content: .content} end)
+          + (if ((.tool_calls // []) | length) > 0 then {tool_calls: (assistant_tool_calls)} else {} end))
+      elif .role == "tool" then
+        {
+          role: "tool",
+          tool_call_id: .tool_call_id,
+          content: (.result | tojson)
+        }
+      else
+        {
+          role: .role,
+          content: .content
+        }
+      end;
+
+    {
+      model: .model,
+      stream: true,
+      stream_options: {include_usage: true},
+      tool_choice: "auto",
+      parallel_tool_calls: true,
+      tools: ((.tools // []) | map({
+        type: "function",
+        function: {
+          name: .name,
+          description: (.description // ""),
+          parameters: (.input_schema // {type: "object", properties: {}, additionalProperties: false})
+        }
+      })),
+      messages: (
+        [
+          {role: "system", content: .system_prompt},
+          {role: "system", content: .tool_use_instructions}
+        ]
+        + skill_messages
+        + ((.messages // []) | map(map_message))
+      )
+    }
+  ' <<<"$request_json"
+}
+
+# SSE parser for OpenAI chat_completions streaming format.
+# Reads SSE from stdin, emits BAISH NDJSON events to stdout.
+_kilo_parse_sse() {
+  local line data_line content reasoning_content finish_reason
+  local tool_call_id tool_name tool_args_delta
+
+  tool_call_id=''
+  tool_name=''
+  tool_args_delta=''
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip SSE "data: " prefix
+    if [[ "$line" == 'data: '* ]]; then
+      data_line="${line#data: }"
+    elif [[ "$line" == 'data:'* && "$line" != 'data: '* ]]; then
+      data_line="${line#data:}"
+    else
+      continue
+    fi
+
+    # Skip [DONE] sentinel and empty lines
+    [[ "$data_line" == '[DONE]' ]] && continue
+    [[ -z "$data_line" ]] && continue
+
+    # Extract text content from delta
+    content="$(jq -r '.choices[0].delta.content // empty' <<<"$data_line" 2>/dev/null)" || continue
+    if [[ -n "$content" ]]; then
+      local escaped_content
+      escaped_content="$(printf '%s' "$content" | jq -Rs '.')" || continue
+      printf '{"type":"delta","category":"text","content":%s}\n' "$escaped_content"
+    fi
+
+    # Extract reasoning/thinking content
+    reasoning_content="$(jq -r '(.choices[0].delta.reasoning_content // .choices[0].delta.reasoning) // empty' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$reasoning_content" ]]; then
+      local escaped_reasoning
+      escaped_reasoning="$(printf '%s' "$reasoning_content" | jq -Rs '.')" || continue
+      printf '{"type":"delta","category":"thinking","content":%s}\n' "$escaped_reasoning"
+    fi
+
+    # Extract tool call deltas
+    local tc_json
+    tc_json="$(jq -c '.choices[0].delta.tool_calls[]?' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$tc_json" ]]; then
+      while IFS= read -r tc; do
+        [[ -z "$tc" ]] && continue
+        local idx id name args
+        idx="$(jq -r '.index // 0' <<<"$tc" 2>/dev/null)" || continue
+        id="$(jq -r '.id // empty' <<<"$tc" 2>/dev/null)" || true
+        name="$(jq -r '.function.name // empty' <<<"$tc" 2>/dev/null)" || true
+        args="$(jq -r '.function.arguments // empty' <<<"$tc" 2>/dev/null)" || true
+
+        # When we get an id, it's a new tool call
+        if [[ -n "$id" ]]; then
+          tool_call_id="$id"
+          tool_name="$name"
+          tool_args_delta=''
+        fi
+
+        if [[ -n "$args" ]]; then
+          tool_args_delta+="$args"
+          local escaped_args
+          escaped_args="$(printf '%s' "$args" | jq -Rs '.')" || continue
+          printf '{"type":"tool_call_delta","index":%s,"tool_call_id":"%s","name":"%s","arguments_delta":%s}\n' \
+            "$idx" "$tool_call_id" "$tool_name" "$escaped_args"
+        fi
+      done <<<"$tc_json"
+    fi
+
+    # Check for finish_reason
+    finish_reason="$(jq -r '
+      if (.choices? | type == "array" and length > 0) then
+        .choices[0].finish_reason // empty
+      else
+        empty
+      end
+    ' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$finish_reason" && "$finish_reason" != 'null' ]]; then
+      # Emit pending tool_call if we have accumulated args
+      if [[ -n "$tool_call_id" && -n "$tool_args_delta" ]]; then
+        local full_args_json
+        full_args_json="$(jq -c '.' <<<"$tool_args_delta" 2>/dev/null)" || full_args_json="{}"
+        printf '{"type":"tool_call","tool_call_id":"%s","name":"%s","arguments":%s}\n' \
+          "$tool_call_id" "$tool_name" "$full_args_json"
+      fi
+
+      local mapped_reason
+      case "$finish_reason" in
+        stop) mapped_reason="stop" ;;
+        tool_calls) mapped_reason="tool_calls" ;;
+        length) mapped_reason="length" ;;
+        *) mapped_reason="stop" ;;
+      esac
+      printf '{"type":"done","finish_reason":"%s"}\n' "$mapped_reason"
+    fi
+  done
+}
+
+provider_kilo_chat_stream() {
+  local request_json="$1"
+  local api_key headers_json payload_json message
+
+  provider_kilo_auth || return 1
+  api_key="$(provider_kilo_active_api_key)" || return 1
+  headers_json="$(provider_kilo_auth_headers_json "$api_key")" || return 1
+  payload_json="$(provider_kilo_build_chat_payload_stream_json "$request_json")" || return 1
+
+  provider_kilo_http_stream 'POST' "$(provider_kilo_chat_url)" "$headers_json" "$payload_json" \
+    | _kilo_parse_sse
+}

@@ -31,7 +31,43 @@ provider_${id}_metadata() {
 provider_${id}_auth() { :; }
 provider_${id}_list_models() { printf '[]\n'; }
 provider_${id}_chat() { printf '{"assistant_text":null,"tool_calls":[]}\n'; }
+provider_${id}_chat_stream() { printf '{"type":"done","finish_reason":"stop"}\n'; }
 EOF
+}
+
+# Helper: write a minimal valid provider with a custom metadata id
+write_provider_with_metadata_id() {
+  local filename="$1"
+  local metadata_id="$2"
+  local label="$3"
+  local desc="$4"
+
+  cat >"$TEST_REPO/lib/providers/${filename}.sh" <<BODY
+#!/usr/bin/env bash
+provider_${filename}_metadata() {
+  jq -cn --arg id "$metadata_id" --arg provider_label "$label" --arg provider_desc "$desc" '{"id": \$id, "label": \$provider_label, "desc": \$provider_desc, "selectable": true}'
+}
+provider_${filename}_auth() { :; }
+provider_${filename}_list_models() { printf '[]\n'; }
+provider_${filename}_chat() { printf '{"assistant_text":null,"tool_calls":[]}\n'; }
+provider_${filename}_chat_stream() { printf '{"type":"done","finish_reason":"stop"}\n'; }
+BODY
+}
+
+# Helper: write a provider with an empty description
+write_provider_with_empty_desc() {
+  local filename="$1"
+
+  cat >"$TEST_REPO/lib/providers/${filename}.sh" <<BODY
+#!/usr/bin/env bash
+provider_${filename}_metadata() {
+  jq -cn '{"id":"'"$filename"'","label":"'"$filename"'","desc":"","selectable":true}'
+}
+provider_${filename}_auth() { :; }
+provider_${filename}_list_models() { printf '[]\n'; }
+provider_${filename}_chat() { printf '{"assistant_text":null,"tool_calls":[]}\n'; }
+provider_${filename}_chat_stream() { printf '{"type":"done","finish_reason":"stop"}\n'; }
+BODY
 }
 
 run_provider_discover() {
@@ -66,7 +102,7 @@ run_provider_discover() {
 
 @test "provider discovery fails on duplicate ids" {
   write_provider_file alpha "$(valid_provider_body alpha Alpha 'Alpha provider')"
-  write_provider_file beta $'provider_beta_metadata() { jq -cn "{\\"id\\":\\"alpha\\",\\"label\\":\\"Beta\\",\\"desc\\":\\"Duplicate provider\\"}"; }\nprovider_beta_auth() { :; }\nprovider_beta_list_models() { printf "[]\\n"; }\nprovider_beta_chat() { printf "{\\"assistant_text\\":null,\\"tool_calls\\":[]}\\n"; }'
+  write_provider_with_metadata_id beta "alpha" "Beta" "Duplicate provider"
 
   run_provider_discover
 
@@ -84,7 +120,7 @@ run_provider_discover() {
 }
 
 @test "provider discovery fails on empty desc" {
-  write_provider_file alpha $'provider_alpha_metadata() { printf "{\\"id\\":\\"alpha\\",\\"desc\\":\\"\\"}\\n"; }\nprovider_alpha_auth() { :; }\nprovider_alpha_list_models() { printf "[]\\n"; }\nprovider_alpha_chat() { printf "{\\"assistant_text\\":null,\\"tool_calls\\":[]}\\n"; }'
+  write_provider_with_empty_desc alpha
 
   run_provider_discover
 

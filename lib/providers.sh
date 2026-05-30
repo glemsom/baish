@@ -85,7 +85,7 @@ baish_provider_metadata_normalize() {
 baish_provider_discovery_validate_required_actions() {
   local provider_id="$1"
   local action function_name
-  local -a required_actions=(metadata auth list_models chat)
+  local -a required_actions=(metadata auth list_models chat chat_stream)
 
   for action in "${required_actions[@]}"; do
     function_name="provider_${provider_id}_${action}"

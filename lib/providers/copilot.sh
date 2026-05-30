@@ -1355,3 +1355,409 @@ provider_copilot_chat() {
 
   printf '%s\n' "$response_json"
 }
+
+# ─── Streaming support ──────────────────────────────────────────────
+
+provider_copilot_has_streaming() {
+  local model="${BAISH_ACTIVE_MODEL:-}"
+  local family
+
+  if [[ -z "$model" ]]; then
+    printf 'false'
+    return 0
+  fi
+
+  family="$(provider_copilot_model_family "$model")" || { printf 'false'; return 0; }
+
+  case "$family" in
+    chat_completions|anthropic)
+      printf 'true'
+      ;;
+    *)
+      printf 'false'
+      ;;
+  esac
+}
+
+provider_copilot_http_stream() {
+  local method="$1"
+  local url="$2"
+  local headers_json="$3"
+  local body="${4-}"
+  local -a curl_args=()
+  local header_line
+
+  while IFS= read -r header_line; do
+    [[ -z "$header_line" ]] && continue
+    curl_args+=(-H "$header_line")
+  done < <(jq -r 'to_entries[] | "\(.key): \(.value)"' <<<"$headers_json")
+
+  # -N disables buffering so tokens arrive immediately
+  curl_args+=(-sS -N -X "$method")
+
+  if [[ -n "$body" ]]; then
+    curl "${curl_args[@]}" --data-binary @- "$url" <<<"$body" || return 1
+  else
+    curl "${curl_args[@]}" "$url" || return 1
+  fi
+}
+
+# Build streaming payload for chat_completions (stream: true)
+provider_copilot_build_chat_payload_stream_json() {
+  local request_json="$1"
+
+  jq -c '
+    def skill_messages:
+      (.skills // [])
+      | map({role: "system", content: ("Loaded skill: " + .name + "\n" + .content)});
+
+    def assistant_tool_calls:
+      (.tool_calls // [])
+      | map({
+          id: .id,
+          type: "function",
+          function: {
+            name: .name,
+            arguments: (.arguments | tojson)
+          }
+        });
+
+    def map_message:
+      if .role == "assistant" then
+        ({role: "assistant"}
+          + (if .content == null then {} else {content: .content} end)
+          + (if ((.tool_calls // []) | length) > 0 then {tool_calls: (assistant_tool_calls)} else {} end))
+      elif .role == "tool" then
+        {
+          role: "tool",
+          tool_call_id: .tool_call_id,
+          content: (.result | tojson)
+        }
+      else
+        {
+          role: .role,
+          content: .content
+        }
+      end;
+
+    {
+      model: .model,
+      stream: true,
+      stream_options: {include_usage: true},
+      tool_choice: "auto",
+      parallel_tool_calls: true,
+      tools: ((.tools // []) | map({
+        type: "function",
+        function: {
+          name: .name,
+          description: (.description // ""),
+          parameters: (.input_schema // {type: "object", properties: {}, additionalProperties: false})
+        }
+      })),
+      messages: (
+        [
+          {role: "system", content: .system_prompt},
+          {role: "system", content: .tool_use_instructions}
+        ]
+        + skill_messages
+        + ((.messages // []) | map(map_message))
+      )
+    }
+  ' <<<"$request_json"
+}
+
+# Build streaming payload for Anthropic (stream: true)
+provider_copilot_build_anthropic_payload_stream_json() {
+  local request_json="$1"
+
+  jq -c '
+    def system_blocks:
+      [
+        {type: "text", text: .system_prompt},
+        {type: "text", text: .tool_use_instructions}
+      ]
+      + ((.skills // []) | map({type: "text", text: ("Loaded skill: " + .name + "\n" + .content)}));
+
+    def assistant_content:
+      ((if .content == null then [] else [{type: "text", text: .content}] end)
+      + ((.tool_calls // []) | map({
+          type: "tool_use",
+          id: .id,
+          name: .name,
+          input: .arguments
+        })));
+
+    def map_message:
+      if .role == "assistant" then
+        {role: "assistant", content: assistant_content}
+      elif .role == "tool" then
+        {
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: .tool_call_id,
+            content: (.result | tojson)
+          }]
+        }
+      else
+        {
+          role: .role,
+          content: [{type: "text", text: .content}]
+        }
+      end;
+
+    {
+      model: .model,
+      stream: true,
+      max_tokens: 32000,
+      system: system_blocks,
+      tools: ((.tools // []) | map({
+        name: .name,
+        description: (.description // ""),
+        input_schema: (.input_schema // {type: "object", properties: {}, additionalProperties: false})
+      })),
+      messages: ((.messages // []) | map(map_message))
+    }
+  ' <<<"$request_json"
+}
+
+# SSE parser for OpenAI chat_completions streaming format.
+# Reads SSE from stdin, emits BAISH NDJSON events to stdout.
+_copilot_parse_sse_chat() {
+  local line data_line content reasoning_content finish_reason
+  local tool_call_id tool_name tool_args_delta
+
+  tool_call_id=''
+  tool_name=''
+  tool_args_delta=''
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip SSE "data: " prefix
+    if [[ "$line" == 'data: '* ]]; then
+      data_line="${line#data: }"
+    elif [[ "$line" == 'data:'* && "$line" != 'data: '* ]]; then
+      data_line="${line#data:}"
+    else
+      continue
+    fi
+
+    # Skip [DONE] sentinel and empty lines
+    [[ "$data_line" == '[DONE]' ]] && continue
+    [[ -z "$data_line" ]] && continue
+
+    # Extract text content from delta
+    content="$(jq -r '.choices[0].delta.content // empty' <<<"$data_line" 2>/dev/null)" || continue
+    if [[ -n "$content" ]]; then
+      local escaped_content
+      escaped_content="$(printf '%s' "$content" | jq -Rs '.')" || continue
+      printf '{"type":"delta","category":"text","content":%s}\n' "$escaped_content"
+    fi
+
+    # Extract reasoning/thinking content
+    reasoning_content="$(jq -r '(.choices[0].delta.reasoning_content // .choices[0].delta.reasoning) // empty' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$reasoning_content" ]]; then
+      local escaped_reasoning
+      escaped_reasoning="$(printf '%s' "$reasoning_content" | jq -Rs '.')" || continue
+      printf '{"type":"delta","category":"thinking","content":%s}\n' "$escaped_reasoning"
+    fi
+
+    # Extract tool call deltas
+    local tc_json
+    tc_json="$(jq -c '.choices[0].delta.tool_calls[]?' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$tc_json" ]]; then
+      while IFS= read -r tc; do
+        [[ -z "$tc" ]] && continue
+        local idx id name args
+        idx="$(jq -r '.index // 0' <<<"$tc" 2>/dev/null)" || continue
+        id="$(jq -r '.id // empty' <<<"$tc" 2>/dev/null)" || true
+        name="$(jq -r '.function.name // empty' <<<"$tc" 2>/dev/null)" || true
+        args="$(jq -r '.function.arguments // empty' <<<"$tc" 2>/dev/null)" || true
+
+        # When we get an id, it's a new tool call
+        if [[ -n "$id" ]]; then
+          tool_call_id="$id"
+          tool_name="$name"
+          tool_args_delta=''
+        fi
+
+        if [[ -n "$args" ]]; then
+          tool_args_delta+="$args"
+          local escaped_args
+          escaped_args="$(printf '%s' "$args" | jq -Rs '.')" || continue
+          printf '{"type":"tool_call_delta","index":%s,"tool_call_id":"%s","name":"%s","arguments_delta":%s}\n' \
+            "$idx" "$tool_call_id" "$tool_name" "$escaped_args"
+        fi
+      done <<<"$tc_json"
+    fi
+
+    # Check for finish_reason in the last choice or in usage events
+    finish_reason="$(jq -r '
+      if (.choices? | type == "array" and length > 0) then
+        .choices[0].finish_reason // empty
+      else
+        empty
+      end
+    ' <<<"$data_line" 2>/dev/null)" || true
+    if [[ -n "$finish_reason" && "$finish_reason" != 'null' ]]; then
+      # Emit pending tool_call if we have accumulated args
+      if [[ -n "$tool_call_id" && -n "$tool_args_delta" ]]; then
+        local full_args_json
+        full_args_json="$(jq -c '.' <<<"$tool_args_delta" 2>/dev/null)" || full_args_json="{}"
+        printf '{"type":"tool_call","tool_call_id":"%s","name":"%s","arguments":%s}\n' \
+          "$tool_call_id" "$tool_name" "$full_args_json"
+      fi
+
+      local mapped_reason
+      case "$finish_reason" in
+        stop) mapped_reason="stop" ;;
+        tool_calls) mapped_reason="tool_calls" ;;
+        length) mapped_reason="length" ;;
+        *) mapped_reason="stop" ;;
+      esac
+      printf '{"type":"done","finish_reason":"%s"}\n' "$mapped_reason"
+    fi
+  done
+}
+
+# SSE parser for Anthropic messages streaming format.
+# Reads SSE from stdin, emits BAISH NDJSON events to stdout.
+_copilot_parse_sse_anthropic() {
+  local line data_line event_type
+  local -a content_block_types=()
+  local -a content_block_ids=()
+  local -a content_block_names=()
+  local -a content_block_args=()
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == 'data: '* ]]; then
+      data_line="${line#data: }"
+    elif [[ "$line" == 'data:'* && "$line" != 'data: '* ]]; then
+      data_line="${line#data:}"
+    else
+      continue
+    fi
+
+    [[ -z "$data_line" ]] && continue
+
+    event_type="$(jq -r '.type // empty' <<<"$data_line" 2>/dev/null)" || continue
+
+    case "$event_type" in
+      content_block_start)
+        local index block_type block_id block_name
+        index="$(jq -r '.index // 0' <<<"$data_line" 2>/dev/null)" || continue
+        block_type="$(jq -r '.content_block.type // empty' <<<"$data_line" 2>/dev/null)" || true
+        block_id="$(jq -r '.content_block.id // empty' <<<"$data_line" 2>/dev/null)" || true
+        block_name="$(jq -r '.content_block.name // empty' <<<"$data_line" 2>/dev/null)" || true
+
+        content_block_types[$index]="$block_type"
+        content_block_ids[$index]="$block_id"
+        content_block_names[$index]="$block_name"
+        content_block_args[$index]=''
+        ;;
+
+      content_block_delta)
+        local index delta_type
+        index="$(jq -r '.index // 0' <<<"$data_line" 2>/dev/null)" || continue
+        delta_type="$(jq -r '.delta.type // empty' <<<"$data_line" 2>/dev/null)" || continue
+
+        case "$delta_type" in
+          text_delta)
+            local delta_text
+            delta_text="$(jq -r '.delta.text // empty' <<<"$data_line" 2>/dev/null)" || continue
+            if [[ -n "$delta_text" ]]; then
+              local escaped
+              escaped="$(printf '%s' "$delta_text" | jq -Rs '.')" || continue
+              printf '{"type":"delta","category":"text","content":%s}\n' "$escaped"
+            fi
+            ;;
+          thinking_delta)
+            local delta_thinking
+            delta_thinking="$(jq -r '.delta.thinking // empty' <<<"$data_line" 2>/dev/null)" || continue
+            if [[ -n "$delta_thinking" ]]; then
+              local escaped
+              escaped="$(printf '%s' "$delta_thinking" | jq -Rs '.')" || continue
+              printf '{"type":"delta","category":"thinking","content":%s}\n' "$escaped"
+            fi
+            ;;
+          input_json_delta)
+            local delta_partial_json
+            delta_partial_json="$(jq -r '.delta.partial_json // empty' <<<"$data_line" 2>/dev/null)" || continue
+            if [[ -n "$delta_partial_json" ]]; then
+              content_block_args[$index]+="$delta_partial_json"
+              local escaped
+              escaped="$(printf '%s' "$delta_partial_json" | jq -Rs '.')" || continue
+              printf '{"type":"tool_call_delta","index":%s,"tool_call_id":"%s","name":"%s","arguments_delta":%s}\n' \
+                "$index" "${content_block_ids[$index]}" "${content_block_names[$index]}" "$escaped"
+            fi
+            ;;
+        esac
+        ;;
+
+      message_delta)
+        local stop_reason
+        stop_reason="$(jq -r '.delta.stop_reason // empty' <<<"$data_line" 2>/dev/null)" || true
+
+        # Emit any pending tool calls with accumulated args
+        local i
+        for i in "${!content_block_types[@]}"; do
+          if [[ "${content_block_types[$i]}" == "tool_use" && -n "${content_block_args[$i]}" && -n "${content_block_ids[$i]}" ]]; then
+            local full_args_json
+            full_args_json="$(jq -c '.' <<<"${content_block_args[$i]}" 2>/dev/null)" || full_args_json="{}"
+            printf '{"type":"tool_call","tool_call_id":"%s","name":"%s","arguments":%s}\n' \
+              "${content_block_ids[$i]}" "${content_block_names[$i]}" "$full_args_json"
+          fi
+        done
+
+        if [[ -n "$stop_reason" && "$stop_reason" != 'null' ]]; then
+          local mapped_reason
+          case "$stop_reason" in
+            end_turn) mapped_reason="stop" ;;
+            tool_use) mapped_reason="tool_calls" ;;
+            max_tokens) mapped_reason="length" ;;
+            stop_sequence) mapped_reason="stop" ;;
+            *) mapped_reason="stop" ;;
+          esac
+          printf '{"type":"done","finish_reason":"%s"}\n' "$mapped_reason"
+        fi
+        ;;
+
+      message_stop)
+        # Fallback final event if no stop_reason was seen
+        printf '{"type":"done","finish_reason":"stop"}\n'
+        ;;
+    esac
+  done
+}
+
+provider_copilot_chat_stream() {
+  local request_json="$1"
+  local auth_json api_base model family url headers_json payload_json
+
+  auth_json="$(provider_copilot_get_active_auth_json)" || return 1
+  api_base="$(provider_copilot_api_base_from_auth_json "$auth_json")" || return 1
+  model="$(jq -r '.model // empty' <<<"$request_json")" || return 1
+  family="$(provider_copilot_model_family "$model")" || return 1
+
+  provider_copilot_enable_model_policy "$auth_json" "$model" >/dev/null 2>&1 || true
+
+  case "$family" in
+    anthropic)
+      headers_json="$(provider_copilot_api_headers_json "$auth_json" "$request_json")" || return 1
+      payload_json="$(provider_copilot_build_anthropic_payload_stream_json "$request_json")" || return 1
+      url="$(provider_copilot_trim_trailing_slash "$api_base")/v1/messages"
+      provider_copilot_http_stream 'POST' "$url" "$headers_json" "$payload_json" \
+        | _copilot_parse_sse_anthropic
+      ;;
+    chat_completions)
+      headers_json="$(provider_copilot_api_headers_json "$auth_json" "$request_json")" || return 1
+      payload_json="$(provider_copilot_build_chat_payload_stream_json "$request_json")" || return 1
+      url="$(provider_copilot_trim_trailing_slash "$api_base")/chat/completions"
+      provider_copilot_http_stream 'POST' "$url" "$headers_json" "$payload_json" \
+        | _copilot_parse_sse_chat
+      ;;
+    *)
+      printf '{"type":"error","message":"Streaming not supported for model family: %s"}\n' "$family" >&2
+      return 1
+      ;;
+  esac
+}
