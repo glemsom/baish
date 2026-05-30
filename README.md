@@ -174,8 +174,8 @@ Slash-command prefixes are parsed from the start of the draft, processed left-to
 
 Lookup order for a skill named <name>:
 
-1. ./.baish/skills/<name>.md (project-local)
-2. ~/.baish/skills/<name>.md (user-global)
+1. ./.baish/skills/<name>/SKILL.md (project-local)
+2. ~/.baish/skills/<name>/SKILL.md (user-global)
 
 Rules:
 

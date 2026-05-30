@@ -62,8 +62,8 @@ strip_ansi() {
 @test "context request keeps a byte-stable prefix when only conversation changes" {
   local request_one request_two prefix_one prefix_two
 
-  mkdir -p "$TEST_PROJECT/.baish/skills"
-  printf 'Use tiny steps.\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
+  mkdir -p "$TEST_PROJECT/.baish/skills/tdd"
+  printf 'Use tiny steps.\n' >"$TEST_PROJECT/.baish/skills/tdd/SKILL.md"
 
   baish_skill_load 'tdd'
   request_one="$(baish_context_build_request_json 'mock-tools' '[{"role":"user","content":"hello one"}]')"

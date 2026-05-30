@@ -528,7 +528,7 @@ baish_slash_select_provider() {
 
 baish_skill_project_path() {
   local skill_name="$1"
-  printf '%s/.baish/skills/%s.md\n' "$PWD" "$skill_name"
+  printf '%s/.baish/skills/%s/SKILL.md\n' "$PWD" "$skill_name"
 }
 
 baish_skill_user_path() {
@@ -536,7 +536,7 @@ baish_skill_user_path() {
   local skills_dir
 
   skills_dir="$(baish_state_skills_dir)" || return 1
-  printf '%s/%s.md\n' "$skills_dir" "$skill_name"
+  printf '%s/%s/SKILL.md\n' "$skills_dir" "$skill_name"
 }
 
 baish_skill_resolve_path() {
@@ -571,9 +571,8 @@ baish_skill_list_available() {
   shopt -s nullglob
 
   project_dir="$PWD/.baish/skills"
-  for path in "$project_dir"/*.md; do
-    skill_name="${path##*/}"
-    skill_name="${skill_name%.md}"
+  for path in "$project_dir"/*/SKILL.md; do
+    skill_name="$(basename "$(dirname "$path")")"
     if [[ -n "$skill_name" && -z "${seen[$skill_name]+x}" ]]; then
       seen["$skill_name"]=1
       printf '%s\n' "$skill_name"
@@ -586,9 +585,8 @@ baish_skill_list_available() {
     fi
     return 1
   }
-  for path in "$user_dir"/*.md; do
-    skill_name="${path##*/}"
-    skill_name="${skill_name%.md}"
+  for path in "$user_dir"/*/SKILL.md; do
+    skill_name="$(basename "$(dirname "$path")")"
     if [[ -n "$skill_name" && -z "${seen[$skill_name]+x}" ]]; then
       seen["$skill_name"]=1
       printf '%s\n' "$skill_name"

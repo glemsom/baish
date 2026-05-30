@@ -129,8 +129,8 @@ setup() {
 @test "/new resets only the conversation messages" {
   local output_file output status
 
-  mkdir -p "$TEST_PROJECT/.baish/skills"
-  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
+  mkdir -p "$TEST_PROJECT/.baish/skills/tdd"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd/SKILL.md"
 
   baish_skill_load 'tdd'
   BAISH_SESSION_MESSAGES+=('{"role":"user","content":"first"}')
@@ -149,10 +149,10 @@ setup() {
 }
 
 @test "skill loading prefers project-local skills, falls back to user skills, and stays idempotent" {
-  mkdir -p "$TEST_PROJECT/.baish/skills" "$TEST_HOME/.baish/skills"
-  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
-  printf 'user tdd\n' >"$TEST_HOME/.baish/skills/tdd.md"
-  printf 'user pirate\n' >"$TEST_HOME/.baish/skills/pirate.md"
+  mkdir -p "$TEST_PROJECT/.baish/skills/tdd" "$TEST_HOME/.baish/skills/tdd" "$TEST_HOME/.baish/skills/pirate"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd/SKILL.md"
+  printf 'user tdd\n' >"$TEST_HOME/.baish/skills/tdd/SKILL.md"
+  printf 'user pirate\n' >"$TEST_HOME/.baish/skills/pirate/SKILL.md"
 
   baish_skill_load 'tdd'
   baish_skill_load 'pirate'
@@ -161,16 +161,16 @@ setup() {
   [ "${#BAISH_SESSION_SKILL_NAMES[@]}" -eq 2 ]
   [ "${BAISH_SESSION_SKILL_NAMES[0]}" = 'tdd' ]
   [ "${BAISH_SESSION_SKILL_NAMES[1]}" = 'pirate' ]
-  [ "${BAISH_SESSION_SKILL_PATHS[0]}" = "$TEST_PROJECT/.baish/skills/tdd.md" ]
-  [ "${BAISH_SESSION_SKILL_PATHS[1]}" = "$TEST_HOME/.baish/skills/pirate.md" ]
+  [ "${BAISH_SESSION_SKILL_PATHS[0]}" = "$TEST_PROJECT/.baish/skills/tdd/SKILL.md" ]
+  [ "${BAISH_SESSION_SKILL_PATHS[1]}" = "$TEST_HOME/.baish/skills/pirate/SKILL.md" ]
   [ "${BAISH_SESSION_SKILL_CONTENTS[0]}" = 'project tdd' ]
   [ "${BAISH_SESSION_SKILL_CONTENTS[1]}" = 'user pirate' ]
 }
 
 @test "slash completion supports commands, skills, and multiple slash commands on one line" {
-  mkdir -p "$TEST_PROJECT/.baish/skills" "$TEST_HOME/.baish/skills"
-  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
-  printf 'user pirate\n' >"$TEST_HOME/.baish/skills/pirate.md"
+  mkdir -p "$TEST_PROJECT/.baish/skills/tdd" "$TEST_HOME/.baish/skills/pirate"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd/SKILL.md"
+  printf 'user pirate\n' >"$TEST_HOME/.baish/skills/pirate/SKILL.md"
 
   run bash -lc '
     source "$1/lib/state.sh"
@@ -618,8 +618,8 @@ EOF
 }
 
 @test "process input preserves embedded newlines after slash commands" {
-  mkdir -p "$TEST_PROJECT/.baish/skills"
-  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd.md"
+  mkdir -p "$TEST_PROJECT/.baish/skills/tdd"
+  printf 'project tdd\n' >"$TEST_PROJECT/.baish/skills/tdd/SKILL.md"
 
   baish_process_input_line $'/skill:tdd\nFix line one\nFix line two'
 
