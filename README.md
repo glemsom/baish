@@ -68,6 +68,19 @@ docker build \
   -t baish .
 ```
 
+If you use Ghostty and want the container to recognize `TERM=xterm-ghostty`, export the host terminfo entry and inject it at build time:
+
+```bash
+GHOSTTY_TERMINFO_B64="$(infocmp -x xterm-ghostty | base64 -w0)"
+docker build \
+  --build-arg BAISH_UID="$(id -u)" \
+  --build-arg BAISH_GID="$(id -g)" \
+  --build-arg GHOSTTY_TERMINFO_B64="$GHOSTTY_TERMINFO_B64" \
+  -t baish .
+```
+
+This compiles the Ghostty terminfo into the image via `tic`, so the container can safely run with `TERM=xterm-ghostty`.
+
 Launch helper:
 
 ```bash
@@ -81,6 +94,17 @@ baishc() {
 ```
 
 This mounts the current directory at /workspace and your BAISH state at /home/baish/.baish.
+
+For Ghostty, pass the matching terminal type through to the container:
+
+```bash
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$HOME/.baish:/home/baish/.baish" \
+  -e TERM=xterm-ghostty \
+  -e COLORTERM=truecolor \
+  baish
+```
 
 ## Status Footer
 
@@ -101,7 +125,7 @@ BAISH builds a message draft (not a single physical line):
 - Embedded newlines and trailing whitespace are preserved
 - Whitespace-only drafts are ignored
 
-First-release multiline support targets Kitty and Ghostty. Use the manual verifier if needed:
+First-release multiline support targets Kitty and Ghostty. In Docker, Ghostty support requires the `xterm-ghostty` terminfo entry to be installed in the image as described above. Use the manual verifier if needed:
 
 ```bash
 ./scripts/verify-multiline-key.sh observe

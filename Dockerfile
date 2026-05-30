@@ -2,6 +2,7 @@ FROM debian:trixie-slim
 
 ARG BAISH_UID=1000
 ARG BAISH_GID=1000
+ARG GHOSTTY_TERMINFO_B64=
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -20,6 +21,7 @@ RUN apt-get update \
       grep \
       jq \
       make \
+      ncurses-bin \
       sed \
     && rm -rf /var/lib/apt/lists/*
 
@@ -38,7 +40,15 @@ RUN groupadd --gid "$BAISH_GID" baish \
 
 COPY --chown=baish:baish . /opt/baish
 
+RUN if [[ -n "$GHOSTTY_TERMINFO_B64" ]]; then \
+      printf '%s' "$GHOSTTY_TERMINFO_B64" | base64 --decode >/tmp/xterm-ghostty.src \
+      && tic -x -o /usr/share/terminfo /tmp/xterm-ghostty.src \
+      && rm -f /tmp/xterm-ghostty.src; \
+    fi
+
 ENV HOME=/home/baish
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 WORKDIR /workspace
 USER baish
 
