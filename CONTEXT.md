@@ -1,64 +1,73 @@
-# BAISH
+# BAISH Context
 
-BAISH is a terminal AI coding agent. This context captures the product language used to talk about how BAISH connects to external AI services and chooses which one is currently in effect.
+This file captures the runtime context and the assistant/system instructions BAISH uses when constructing model requests. It mirrors the helper functions in lib/context.sh and documents the available provider-native tools.
 
-## Language
+## System prompt
 
-**Provider**:
-A backend that BAISH can connect to and use for model listing, authentication, and chat. A Provider may be an external AI service or a local development backend.
-_Avoid_: backend, integration, vendor
+The BAISH system prompt (baish_context_base_system_prompt) is:
 
-**Selected Provider**:
-The Provider BAISH will use by default until the developer chooses a different one.
-_Avoid_: temporary provider, current backend
+"""
+You are BAISH, a strong autonomous terminal AI coding agent.
+Use tools without asking for permission.
+Inspect relevant files before editing.
+Prefer simple, maintainable changes.
+Do not run tests, builds, or verification unless the developer explicitly asks.
+When finished, respond concisely with changed files and the essential outcome.
+Do not mention unrun verification by default.
+"""
 
-**Active Provider**:
-The Provider currently in effect for this BAISH process.
-_Avoid_: selected provider, connected provider
+## Tool-use instructions
 
-**Provider Switch**:
-An explicit developer action that changes the Active Provider now and updates the Selected Provider used by default in future runs.
-_Avoid_: temporary switch, connect only
+The explicit tool-use guidance (baish_context_tool_use_instructions) is:
 
-**Provider Credentials**:
-The secret or token BAISH uses to authenticate to a Provider.
-_Avoid_: session transcript, model selection
+"""
+Use provider-native tool calls whenever file or shell operations are needed.
+The available tool names are read, write, edit, and bash.
+Return tool calls structurally instead of describing tool invocations in prose.
+"""
 
-**Provider Discovery**:
-The mechanism BAISH uses to find which Providers are available without relying on a fixed built-in list.
-_Avoid_: hardcoded registry, manual list only
+## Provider-native tools
 
-**Provider Metadata**:
-The explicit descriptive data a Provider exposes so BAISH can discover it and present it safely in the provider picker.
-_Avoid_: filename-only discovery, implicit guessing
+BAISH exposes a small set of provider-native tools. Each tool must be called via its structured JSON input when used by the assistant.
 
-**Provider Picker**:
-The interactive list BAISH shows when the developer runs `/provider` to choose a Provider.
-_Avoid_: hardcoded menu, model picker
+- read: Read UTF-8 text from a file.
+  - Input fields: path (string), offset (integer, minimum 1), limit (integer, minimum 0)
+  - Required: path
 
-**Provider Validation**:
-A small authenticated request BAISH uses to confirm that Provider Credentials and the chosen model are actually usable.
-_Avoid_: model listing, optimistic connection
+- write: Write a complete UTF-8 text file, creating parent directories as needed.
+  - Input fields: path (string), content (string)
+  - Required: path, content
 
-**Selectable Provider**:
-A Provider that appears in the Provider Picker and can be chosen directly by the developer.
-_Avoid_: hidden provider, invalid provider
+- edit: Apply exact unique text replacements to an existing UTF-8 text file.
+  - Input fields: path (string), edits (array of {oldText: string, newText: string})
+  - Required: path, edits
 
-**Kilo Gateway**:
-The Kilo Provider exposed through BAISH. It is an OpenAI-compatible gateway that lists models through its own model catalog and authenticates with Provider Credentials.
-_Avoid_: Kilo Code Gateway, Kilo AI Gateway
+- bash: Execute a shell command via bash -lc in the launch directory.
+  - Input fields: command (string), env (object of string values)
+  - Required: command
 
-**Provider ID**:
-The unique stable identifier a Provider exposes in Provider Metadata and uses in its function prefix, auth state, and selection flow.
-_Avoid_: duplicate ID, display label
+These tool definitions are available programmatically from baish_context_tools_json.
 
-**Interactive Override**:
-An explicit in-session developer choice that takes precedence over process defaults for the current BAISH process.
-_Avoid_: startup default, silent fallback
+## Context construction helpers
 
-## Example dialogue
+Key helper functions in lib/context.sh used to assemble model payloads:
 
-- Dev: "Which Provider is BAISH using right now?"
-- Domain expert: "Check the Active Provider for this process."
-- Dev: "If I switch to another one, what happens next time I launch BAISH?"
-- Domain expert: "The newly Selected Provider becomes the default for future runs."
+- baish_context_tools_json: emits the JSON tool schema for the available provider-native tools.
+- baish_context_skills_json: returns an array of loaded session skills (name + content).
+- baish_context_messages_json: returns the current session messages as a JSON array.
+- baish_context_stable_prefix_json: requires an active model id and returns the stable prefix JSON that includes:
+  - model
+  - system_prompt
+  - tools (from baish_context_tools_json)
+  - tool_use_instructions
+  - skills (from baish_context_skills_json)
+
+- baish_context_build_request_json: combines the stable prefix with messages (or uses the session messages) to produce the final request JSON ready to send to a provider. Note: baish_context_stable_prefix_json and baish_context_build_request_json require a non-empty model id and will fail if no active model is provided.
+
+## Notes
+
+- The system prompt and tool-use instructions are authoritative and used when BAISH constructs requests for model backends.
+- When invoking file or shell operations programmatically, prefer the provider-native tools above and return tool calls structurally (JSON) rather than describing actions in prose.
+- For maintainability, prefer small, reversible edits and minimal changes to accomplish the developer's request.
+
+(See lib/context.sh for the canonical implementations.)
