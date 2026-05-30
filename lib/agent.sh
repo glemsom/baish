@@ -806,7 +806,7 @@ baish_agent_run_user_message() {
     baish_agent_append_assistant_response "$response_json" || return 1
 
     if [[ -n "$assistant_text" ]]; then
-      printf 'assistant> %s\n' "$assistant_text"
+      printf '🤖 %s\n' "$assistant_text"
     fi
 
     if (( tool_call_count == 0 )); then

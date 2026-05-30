@@ -182,7 +182,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Hello BAISH'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Selected model: mock-text'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Connected provider: mock'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock connected hello.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock connected hello.'* ]]
 
   auth_file="$TEST_HOME/.baish/auth/mock.json"
   state_file="$TEST_HOME/.baish/state.json"
@@ -213,7 +213,7 @@ strip_ansi() {
   [ "$CAPTURE_STATUS" -eq 0 ]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'Started new chat.'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'user> Second chat'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock fresh chat.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock fresh chat.'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'Connected provider: mock'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '.[0].content' <<<"$messages_json")" = 'Second chat' ]
@@ -241,7 +241,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ✅ completed'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool> bash'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" != *'tool_result>'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed the single-tool scenario.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed the single-tool scenario.'* ]]
   [ "$(jq -r 'length' <<<"$messages_json")" = '4' ]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '1' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'single-tool-output' ]
@@ -299,7 +299,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'printf mixed-output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'↳ completed with output'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'     mixed-output'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed the mixed tool scenario.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed the mixed tool scenario.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '4' ]
 }
 
@@ -342,7 +342,7 @@ strip_ansi() {
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'╰─ ❌ bash failed (exit 3)'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'     stderr:'* ]]
   [[ "$CAPTURE_OUTPUT_PLAIN" == *'second-output'* ]]
-  [[ "$CAPTURE_OUTPUT_PLAIN" == *'assistant> Mock completed 2 tool calls.'* ]]
+  [[ "$CAPTURE_OUTPUT_PLAIN" == *'🤖 Mock completed 2 tool calls.'* ]]
   [ "$(jq -r '[.[] | select(.role == "tool")] | length' <<<"$messages_json")" = '2' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][0].result.data.stdout' <<<"$messages_json")" = 'first-output' ]
   [ "$(jq -r '[.[] | select(.role == "tool")][1].result.data.stderr' <<<"$messages_json")" = 'second-output' ]
