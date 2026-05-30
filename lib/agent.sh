@@ -230,61 +230,64 @@ baish_agent_style_yellow() {
   printf '\033[33m'
 }
 
-# ─── Streaming UI helpers ────────────────────────────────────────────
+# ─── Separator helper ───────────────────────────────────────────────
 
-baish_agent_print_streaming_header() {
-  local label="${1:-Thinking}"
-  printf '%s╭─%s %s%s%s\n' \
+baish_agent_print_separator() {
+  local emoji="$1"
+  local label="$2"
+  local width term_width content_len pad_len
+
+  width="$(baish_agent_terminal_width)" || return 1
+  content_len=$(( 2 + 1 + ${#emoji} + 1 + ${#label} ))  # " 🤔 Thinking"
+  pad_len=$(( width - content_len ))
+  (( pad_len < 2 )) && pad_len=2
+
+  printf '%s%s %s%s%s %s%s\n' \
     "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)" \
+    "$emoji" \
     "$(baish_agent_style_cyan)" \
     "$label" \
-    "$(baish_agent_style_reset)"
+    "$(baish_agent_style_reset)" \
+    "$(baish_agent_style_dim)" \
+    "$(printf '─%.0s' $(seq 1 $pad_len))"
 }
 
-baish_agent_print_streaming_footer() {
-  printf '%s╰─%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)"
+# ─── Streaming UI helpers ────────────────────────────────────────────
+
+baish_agent_print_streaming_block() {
+  local category="$1"   # "thinking" | "text"
+  local emoji label
+
+  case "$category" in
+    thinking) emoji="🤔"; label="Thinking" ;;
+    text)     emoji="💬"; label="Reply" ;;
+  esac
+
+  baish_agent_print_separator "$emoji" "$label"
 }
 
 baish_agent_print_streaming_token() {
   local category="$1"
   local content="$2"
-  local style line first=1
+  local style line
 
   case "$category" in
     thinking) style="$(baish_agent_style_dim)" ;;
     text)     style="$(baish_agent_style_bold_white)" ;;
   esac
 
-  # Strip at most one trailing newline: the here-string <<< adds its own,
-  # so a trailing newline in the content would cause a phantom empty-line
-  # iteration (and an extra border line).
+  # Strip trailing newline (here-string adds its own)
   if [[ "${content: -1}" == $'\n' ]]; then
     content="${content%$'\n'}"
   fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if (( first == 1 )); then
-      first=0
+    if [[ -n "$line" ]]; then
+      printf '  %s%s%s\n' "$style" "$line" "$(baish_agent_style_reset)"
     else
       printf '\n'
     fi
-    if [[ -n "$line" ]]; then
-      printf '%s│%s %s%s%s' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
-        "$style" \
-        "$line" \
-        "$(baish_agent_style_reset)"
-    else
-      printf '%s│%s' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)"
-    fi
   done <<<"$content"
-  printf '\n'
 }
 
 # ─── Streaming NDJSON event parser ───────────────────────────────────
@@ -679,15 +682,7 @@ baish_agent_phase_label() {
 
 baish_agent_print_phase_round_start() {
   local phase_label="$1"
-
-  printf '%s╭─%s %sPhase:%s %s%s%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)" \
-    "$(baish_agent_style_cyan)" \
-    "$(baish_agent_style_reset)" \
-    "$(baish_agent_style_bold_white)" \
-    "$phase_label" \
-    "$(baish_agent_style_reset)"
+  baish_agent_print_separator "🔧" "Phase: $phase_label"
 }
 
 baish_agent_print_phase_round_files() {
@@ -731,9 +726,7 @@ baish_agent_print_phase_round_files() {
     fi
 
     if (( first_line == 1 )); then
-      printf '%s│%s %s%s%s %s%s%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
+      printf '  %s%s%s %s%s%s\n' \
         "$(baish_agent_style_cyan)" \
         "$label" \
         "$(baish_agent_style_reset)" \
@@ -742,9 +735,7 @@ baish_agent_print_phase_round_files() {
         "$(baish_agent_style_reset)"
       first_line=0
     else
-      printf '%s│%s %s%s%s %s%s%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
+      printf '  %s%s%s %s%s%s\n' \
         "$(baish_agent_style_cyan)" \
         "$continuation_label" \
         "$(baish_agent_style_reset)" \
@@ -757,9 +748,7 @@ baish_agent_print_phase_round_files() {
   done
 
   if (( first_line == 1 )); then
-    printf '%s│%s %s%s%s %s%s%s\n' \
-      "$(baish_agent_style_dim)" \
-      "$(baish_agent_style_reset)" \
+    printf '  %s%s%s %s%s%s\n' \
       "$(baish_agent_style_cyan)" \
       "$label" \
       "$(baish_agent_style_reset)" \
@@ -767,9 +756,7 @@ baish_agent_print_phase_round_files() {
       "$current_line" \
       "$(baish_agent_style_reset)"
   else
-    printf '%s│%s %s%s%s %s%s%s\n' \
-      "$(baish_agent_style_dim)" \
-      "$(baish_agent_style_reset)" \
+    printf '  %s%s%s %s%s%s\n' \
       "$(baish_agent_style_cyan)" \
       "$continuation_label" \
       "$(baish_agent_style_reset)" \
@@ -788,18 +775,14 @@ baish_agent_print_tool_round_item() {
   printf -v padded_name '%-5s' "$tool_name"
 
   if [[ -n "$summary" ]]; then
-    printf '%s│%s %s%s %s%s%s\n' \
-      "$(baish_agent_style_dim)" \
-      "$(baish_agent_style_reset)" \
+    printf '  %s%s %s%s%s\n' \
       "$(baish_agent_style_cyan)" \
       "$icon $padded_name" \
       "$(baish_agent_style_bold_white)" \
       "$summary" \
       "$(baish_agent_style_reset)"
   else
-    printf '%s│%s %s%s%s\n' \
-      "$(baish_agent_style_dim)" \
-      "$(baish_agent_style_reset)" \
+    printf '  %s%s%s\n' \
       "$(baish_agent_style_cyan)" \
       "$icon $tool_name" \
       "$(baish_agent_style_reset)"
@@ -809,9 +792,7 @@ baish_agent_print_tool_round_item() {
 baish_agent_print_tool_round_result_summary() {
   local summary="$1"
 
-  printf '%s│%s   %s↳ %s%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)" \
+  printf '   %s↳ %s%s\n' \
     "$(baish_agent_style_dim)" \
     "$summary" \
     "$(baish_agent_style_reset)"
@@ -837,13 +818,12 @@ baish_agent_print_tool_round_end() {
       ;;
   esac
 
-  printf '%s╰─%s %s%s%s %s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)" \
+  printf '  %s%s%s %s%s\n' \
     "$color" \
     "$icon" \
     "$(baish_agent_style_reset)" \
-    "$text"
+    "$text" \
+    "$(baish_agent_style_reset)"
 }
 
 baish_agent_print_tool_round_result_detail() {
@@ -857,9 +837,7 @@ baish_agent_print_tool_round_result_detail() {
   fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
-    printf '%s│%s     %s%s\n' \
-      "$(baish_agent_style_dim)" \
-      "$(baish_agent_style_reset)" \
+    printf '     %s%s\n' \
       "$line" \
       "$(baish_agent_style_reset)"
   done <<<"$detail"
@@ -894,36 +872,24 @@ baish_agent_print_assistant_response() {
   local assistant_text="$1"
   local line
 
-  printf '%s╭─%s %sReply%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)" \
-    "$(baish_agent_style_cyan)" \
-    "$(baish_agent_style_reset)"
+  baish_agent_print_separator "💬" "Reply"
 
-  # Strip at most one trailing newline to avoid a phantom empty border line
+  # Strip at most one trailing newline to avoid a phantom empty line
   # from the here-string <<< adding an extra newline.
-  if [[ "${assistant_text: -1}" == $'\n' ]]; then
+  if [[ -n "$assistant_text" && "${assistant_text: -1}" == $'\n' ]]; then
     assistant_text="${assistant_text%$'\n'}"
   fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ -n "$line" ]]; then
-      printf '%s│%s %s%s%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)" \
+      printf '  %s%s%s\n' \
         "$(baish_agent_style_bold_white)" \
         "$line" \
         "$(baish_agent_style_reset)"
     else
-      printf '%s│%s\n' \
-        "$(baish_agent_style_dim)" \
-        "$(baish_agent_style_reset)"
+      printf '\n'
     fi
   done <<<"$assistant_text"
-
-  printf '%s╰─%s\n' \
-    "$(baish_agent_style_dim)" \
-    "$(baish_agent_style_reset)"
 }
 
 # ─── Streaming availability check ────────────────────────────────────
@@ -1020,8 +986,8 @@ baish_agent_run_streaming() {
 
     first_request=0
 
-    # Print streaming box header
-    baish_agent_print_streaming_header "Thinking"
+    # Print streaming block header
+    baish_agent_print_streaming_block "thinking"
     local stream_box_mode="thinking"
 
     # Parse NDJSON events as they arrive
@@ -1034,8 +1000,7 @@ baish_agent_run_streaming() {
             case "$STREAM_EVENT_CATEGORY" in
               thinking)
                 if [[ "$stream_box_mode" != "thinking" ]]; then
-                  baish_agent_print_streaming_footer
-                  baish_agent_print_streaming_header "Thinking"
+                  baish_agent_print_streaming_block "thinking"
                   stream_box_mode="thinking"
                 fi
                 thinking_content+="$STREAM_EVENT_CONTENT"
@@ -1043,8 +1008,7 @@ baish_agent_run_streaming() {
                 ;;
               text)
                 if [[ "$stream_box_mode" != "text" ]]; then
-                  baish_agent_print_streaming_footer
-                  baish_agent_print_streaming_header "Reply"
+                  baish_agent_print_streaming_block "text"
                   stream_box_mode="text"
                 fi
                 text_content+="$STREAM_EVENT_CONTENT"
@@ -1078,7 +1042,6 @@ baish_agent_run_streaming() {
             break
             ;;
           error)
-            baish_agent_print_streaming_footer
             printf 'BAISH streaming error: %s\n' "$STREAM_EVENT_ERROR_MSG" >&2
             return 1
             ;;
@@ -1086,8 +1049,7 @@ baish_agent_run_streaming() {
       fi
     done <<<"$stream_output"
 
-    # Print streaming box footer
-    baish_agent_print_streaming_footer
+    # No footer needed — separators mark section boundaries
 
     # Build response_json from accumulated content (same shape as non-streaming)
     response_json="$(jq -cn \
