@@ -258,6 +258,13 @@ baish_agent_print_streaming_token() {
     text)     style="$(baish_agent_style_bold_white)" ;;
   esac
 
+  # Strip at most one trailing newline: the here-string <<< adds its own,
+  # so a trailing newline in the content would cause a phantom empty-line
+  # iteration (and an extra border line).
+  if [[ "${content: -1}" == $'\n' ]]; then
+    content="${content%$'\n'}"
+  fi
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     if (( first == 1 )); then
       first=0
@@ -843,6 +850,12 @@ baish_agent_print_tool_round_result_detail() {
   local detail="$1"
   local line
 
+  # Strip at most one trailing newline to avoid a phantom empty border line
+  # from the here-string <<< adding an extra newline.
+  if [[ -n "$detail" && "${detail: -1}" == $'\n' ]]; then
+    detail="${detail%$'\n'}"
+  fi
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     printf '%s│%s     %s%s\n' \
       "$(baish_agent_style_dim)" \
@@ -855,6 +868,12 @@ baish_agent_print_tool_round_result_detail() {
 baish_agent_print_tool_round_detail() {
   local detail="$1"
   local first_line=1 line
+
+  # Strip at most one trailing newline to avoid a phantom empty indented line
+  # from the here-string <<< adding an extra newline.
+  if [[ -n "$detail" && "${detail: -1}" == $'\n' ]]; then
+    detail="${detail%$'\n'}"
+  fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     if (( first_line == 1 )); then
@@ -880,6 +899,12 @@ baish_agent_print_assistant_response() {
     "$(baish_agent_style_reset)" \
     "$(baish_agent_style_cyan)" \
     "$(baish_agent_style_reset)"
+
+  # Strip at most one trailing newline to avoid a phantom empty border line
+  # from the here-string <<< adding an extra newline.
+  if [[ "${assistant_text: -1}" == $'\n' ]]; then
+    assistant_text="${assistant_text%$'\n'}"
+  fi
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     if [[ -n "$line" ]]; then
