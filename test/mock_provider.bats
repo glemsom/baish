@@ -177,3 +177,42 @@ exit 0'
   [ "$(jq -r '.selected_provider' "$state_file")" = 'mock' ]
   [ "$(jq -r '.selected_model' "$state_file")" = 'mock-text' ]
 }
+
+@test "interactive launcher shows the startup header and first idle footer" {
+  local stub_bin
+
+  stub_bin="$BATS_TEST_TMPDIR/bin"
+  make_stub_command "$stub_bin" fzf 'exit 0'
+  make_stub_command "$stub_bin" bat 'exit 0'
+  make_stub_command "$stub_bin" gawk 'if [[ "${1-}" == "--version" ]]; then
+  printf "GNU Awk 5.0\n"
+  exit 0
+fi
+exit 0'
+
+  run bash -lc 'cd "$1" && printf "/quit\n" | script -qec "env HOME=\"$2\" BAISH_PROVIDER=mock BAISH_MODEL=mock-text PATH=\"$3:/usr/bin:/bin\" \"$4/bin/baish\"" /dev/null | tr -d "\r"' bash "$TEST_PROJECT" "$TEST_HOME" "$stub_bin" "$REPO_ROOT"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"BAISH · AI Coding Assistant for Bash"* ]]
+  [[ "$output" == *"Slash commands:"* ]]
+  [[ "$output" == *"────────────────────────────────────────────────────────────────────────────────"* ]]
+  [[ "$output" == *"$TEST_PROJECT · Mock Provider · mock-text"* ]]
+}
+
+@test "non-interactive launcher output stays footer-free" {
+  local stub_bin
+
+  stub_bin="$BATS_TEST_TMPDIR/bin"
+  make_stub_command "$stub_bin" fzf 'exit 0'
+  make_stub_command "$stub_bin" bat 'exit 0'
+  make_stub_command "$stub_bin" gawk 'if [[ "${1-}" == "--version" ]]; then
+  printf "GNU Awk 5.0\n"
+  exit 0
+fi
+exit 0'
+
+  run bash -lc 'cd "$1" && printf "/quit\n" | env HOME="$2" BAISH_PROVIDER=mock BAISH_MODEL=mock-text PATH="$3:/usr/bin:/bin" "$4/bin/baish"' bash "$TEST_PROJECT" "$TEST_HOME" "$stub_bin" "$REPO_ROOT"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = 'BAISH ready. Use /quit to exit.' ]
+}

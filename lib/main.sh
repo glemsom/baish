@@ -16,6 +16,8 @@ source "$BAISH_REPO_ROOT/lib/readline.sh"
 source "$BAISH_REPO_ROOT/lib/prompt.sh"
 # shellcheck source=providers.sh
 source "$BAISH_REPO_ROOT/lib/providers.sh"
+# shellcheck source=footer.sh
+source "$BAISH_REPO_ROOT/lib/footer.sh"
 # shellcheck source=slash.sh
 source "$BAISH_REPO_ROOT/lib/slash.sh"
 # shellcheck source=context.sh

@@ -122,6 +122,105 @@ baish_readline_disable_keyboard_protocol() {
   fi
 }
 
+baish_readline_footer_line_count() {
+  printf '2\n'
+}
+
+baish_readline_draw_idle_screen() {
+  local prompt_line="${1:-}"
+  local cursor_up
+
+  cursor_up=$(( $(baish_readline_footer_line_count) + 1 ))
+
+  printf '\n'
+  baish_footer_render_lines
+  printf '\033[%sA\r' "$cursor_up"
+  if [[ -n "$prompt_line" ]]; then
+    printf '%s' "$prompt_line"
+  fi
+
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+
+baish_readline_clear_idle_screen_from_prompt_line() {
+  local footer_lines remaining
+
+  footer_lines="$(baish_readline_footer_line_count)"
+  if ! [[ "$footer_lines" =~ ^[0-9]+$ ]] || (( footer_lines < 0 )); then
+    footer_lines=0
+  fi
+
+  printf '\r\033[2K'
+  remaining="$footer_lines"
+  while (( remaining > 0 )); do
+    printf '\033[B\r\033[2K'
+    remaining=$(( remaining - 1 ))
+  done
+
+  if (( footer_lines > 0 )); then
+    printf '\033[%sA\r' "$footer_lines"
+  fi
+
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+
+baish_readline_leave_idle_screen() {
+  local footer_lines remaining
+
+  if [[ "${BAISH_READLINE_IDLE_SCREEN_VISIBLE:-0}" != "1" ]]; then
+    return 0
+  fi
+
+  footer_lines="$(baish_readline_footer_line_count)"
+  if ! [[ "$footer_lines" =~ ^[0-9]+$ ]] || (( footer_lines <= 0 )); then
+    BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+    return 0
+  fi
+
+  printf '\r\033[2K'
+  remaining=$(( footer_lines - 1 ))
+  while (( remaining > 0 )); do
+    printf '\033[B\r\033[2K'
+    remaining=$(( remaining - 1 ))
+  done
+
+  if (( footer_lines > 1 )); then
+    printf '\033[%sA\r' "$(( footer_lines - 1 ))"
+  fi
+
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+
+baish_readline_redraw_idle_screen() {
+  local prompt_line="${1:-}"
+
+  if [[ "${BAISH_READLINE_IDLE_SCREEN_VISIBLE:-0}" == "1" ]]; then
+    baish_readline_clear_idle_screen_from_prompt_line
+  fi
+
+  baish_readline_draw_idle_screen "$prompt_line"
+}
+
+baish_readline_cleanup_idle_screen() {
+  if [[ "${BAISH_READLINE_IDLE_SCREEN_VISIBLE:-0}" == "1" ]]; then
+    baish_readline_clear_idle_screen_from_prompt_line
+  fi
+
+  printf '\n'
+}
+
+baish_readline_handle_winch() {
+  if [[ "${BAISH_READLINE_INTERACTIVE:-0}" != "1" ]]; then
+    return 0
+  fi
+
+  if [[ "${BAISH_READLINE_IDLE_SCREEN_VISIBLE:-0}" != "1" ]]; then
+    return 0
+  fi
+
+  baish_readline_redraw_idle_screen "${BAISH_READLINE_PROMPT:-❯ }"
+}
+
 baish_readline_handle_tab() {
   local line point common_prefix state_key next_index append_space=0
   local -a candidates=()
@@ -217,24 +316,31 @@ baish_readline_loop() {
   baish_session_init
   prompt='❯ '
   draft=''
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+  BAISH_READLINE_INTERACTIVE=0
+  BAISH_READLINE_PROMPT="$prompt"
 
   if [[ -t 0 && -t 1 ]]; then
     interactive=1
+    BAISH_READLINE_INTERACTIVE=1
     baish_readline_enable_keyboard_protocol
     baish_readline_install_bindings || {
       baish_readline_disable_keyboard_protocol
+      BAISH_READLINE_INTERACTIVE=0
       return 1
     }
+    baish_readline_draw_idle_screen "$prompt"
   fi
 
   trap 'BAISH_READLINE_INTERRUPTED=1' INT
+  trap 'baish_readline_handle_winch' WINCH
 
   while true; do
     BAISH_READLINE_INTERRUPTED=0
     line=''
 
     if (( interactive == 1 )); then
-      if read -e -r -p "$prompt" line; then
+      if read -e -r line; then
         read_status=0
       else
         read_status=$?
@@ -251,22 +357,29 @@ baish_readline_loop() {
       if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" || $read_status -eq 130 ]]; then
         draft=''
         prompt='❯ '
+        BAISH_READLINE_PROMPT="$prompt"
         if (( interactive == 1 )); then
-          printf '\n'
+          baish_readline_redraw_idle_screen "$prompt"
         fi
         continue
       fi
 
       if (( interactive == 1 )); then
-        printf '\n'
+        baish_readline_cleanup_idle_screen
       fi
       break
+    fi
+
+    if (( interactive == 1 )); then
+      baish_readline_leave_idle_screen
     fi
 
     if (( interactive == 1 )) && baish_readline_line_requests_continuation "$line"; then
       baish_readline_strip_continuation_marker "$line"
       draft+="$BAISH_READLINE_STRIPPED_LINE"$'\n'
       prompt="$(baish_readline_continuation_prompt)"
+      BAISH_READLINE_PROMPT="$prompt"
+      baish_readline_draw_idle_screen "$prompt"
       continue
     fi
 
@@ -274,26 +387,39 @@ baish_readline_loop() {
       line="${draft}${line}"
       draft=''
       prompt='❯ '
+      BAISH_READLINE_PROMPT="$prompt"
     fi
 
     if ! baish_process_input_line "$line"; then
-      if [[ "${BAISH_READLINE_INTERRUPTED:-0}" == "1" && $interactive -eq 1 ]]; then
-        printf '\n'
-      fi
       prompt='❯ '
+      BAISH_READLINE_PROMPT="$prompt"
+      if (( interactive == 1 )); then
+        baish_readline_draw_idle_screen "$prompt"
+      fi
       continue
     fi
 
     prompt='❯ '
+    BAISH_READLINE_PROMPT="$prompt"
 
     if [[ "${BAISH_SESSION_EXIT_REQUESTED:-0}" == "1" ]]; then
+      if (( interactive == 1 )); then
+        printf '\n'
+      fi
       break
+    fi
+
+    if (( interactive == 1 )); then
+      baish_readline_draw_idle_screen "$prompt"
     fi
   done
 
   trap - INT
+  trap - WINCH
 
   if (( interactive == 1 )); then
     baish_readline_disable_keyboard_protocol
   fi
+
+  BAISH_READLINE_INTERACTIVE=0
 }

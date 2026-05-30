@@ -245,6 +245,317 @@ setup() {
   [ "$(baish_readline_continuation_prompt)" = '       ' ]
 }
 
+@test "readline draw idle screen renders footer below the input line" {
+  local output_file output
+
+  baish_footer_render_lines() {
+    printf 'divider\nstatus\n'
+  }
+
+  output_file="$BATS_TEST_TMPDIR/idle-draw"
+  baish_readline_draw_idle_screen '❯ ' >"$output_file"
+  output="$(<"$output_file")"
+
+  [ "$BAISH_READLINE_IDLE_SCREEN_VISIBLE" = '1' ]
+  [ "$output" = $'\ndivider\nstatus\n\e[3A\r❯ ' ]
+}
+
+@test "readline draw idle screen keeps a usable footer block when footer formatting fails" {
+  local output_file output
+
+  source "$REPO_ROOT/lib/footer.sh"
+
+  baish_footer_divider_line() {
+    return 1
+  }
+
+  baish_footer_format_status_line() {
+    return 1
+  }
+
+  COLUMNS=12
+  output_file="$BATS_TEST_TMPDIR/idle-draw-fallback"
+  baish_readline_draw_idle_screen '❯ ' >"$output_file"
+  output="$(<"$output_file")"
+
+  [ "$BAISH_READLINE_IDLE_SCREEN_VISIBLE" = '1' ]
+  [ "$output" = $'\n────────────\n? · unknown…\n\e[3A\r❯ ' ]
+}
+
+@test "readline leaves the idle screen by clearing footer lines" {
+  local output_file output
+
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+
+  output_file="$BATS_TEST_TMPDIR/idle-leave"
+  baish_readline_leave_idle_screen >"$output_file"
+  output="$(<"$output_file")"
+
+  [ "$BAISH_READLINE_IDLE_SCREEN_VISIBLE" = '0' ]
+  [ "$output" = $'\r\e[2K\e[B\r\e[2K\e[1A\r' ]
+}
+
+@test "readline redraw clears the existing idle block before drawing again" {
+  local output_file output
+
+  baish_footer_render_lines() {
+    printf 'divider\nstatus\n'
+  }
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+
+  output_file="$BATS_TEST_TMPDIR/idle-redraw"
+  baish_readline_redraw_idle_screen '❯ ' >"$output_file"
+  output="$(<"$output_file")"
+
+  [ "$BAISH_READLINE_IDLE_SCREEN_VISIBLE" = '1' ]
+  [ "$output" = $'\r\e[2K\e[B\r\e[2K\e[B\r\e[2K\e[2A\r\ndivider\nstatus\n\e[3A\r❯ ' ]
+}
+
+@test "readline WINCH handler redraws the visible idle screen with the current prompt" {
+  local output_file output
+
+  baish_readline_redraw_idle_screen() {
+    printf 'REDRAW<%s>\n' "$1"
+  }
+
+  BAISH_READLINE_INTERACTIVE=1
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+  BAISH_READLINE_PROMPT='       '
+
+  output_file="$BATS_TEST_TMPDIR/idle-winch"
+  baish_readline_handle_winch >"$output_file"
+  output="$(<"$output_file")"
+
+  [ "$output" = 'REDRAW<       >' ]
+}
+
+@test "readline loop uses the idle screen lifecycle around interactive reads" {
+  local loop_script
+
+  loop_script="$BATS_TEST_TMPDIR/readline-loop-lifecycle.sh"
+  cat >"$loop_script" <<'EOF'
+#!/usr/bin/env bash
+source "__REPO_ROOT__/lib/readline.sh"
+
+baish_session_init() { :; }
+baish_readline_enable_keyboard_protocol() { :; }
+baish_readline_disable_keyboard_protocol() { :; }
+baish_readline_install_bindings() { :; }
+baish_readline_draw_idle_screen() {
+  printf 'DRAW<%s>\n' "$1"
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+baish_readline_leave_idle_screen() {
+  printf 'LEAVE\n'
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+baish_readline_clear_idle_screen_from_prompt_line() {
+  printf 'CLEAR\n'
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+baish_process_input_line() {
+  printf 'PROCESS<%s>\n' "$1"
+}
+
+BAISH_TEST_READ_CALLS=0
+read() {
+  local target="${*: -1}"
+
+  BAISH_TEST_READ_CALLS=$(( BAISH_TEST_READ_CALLS + 1 ))
+  if (( BAISH_TEST_READ_CALLS == 1 )); then
+    printf -v "$target" '%s' 'hello'
+    return 0
+  fi
+
+  return 1
+}
+
+baish_readline_loop
+EOF
+  sed -i "s|__REPO_ROOT__|$REPO_ROOT|g" "$loop_script"
+  chmod +x "$loop_script"
+
+  run bash -lc 'script -qec "$1" /dev/null | tr -d "\r"' bash "$loop_script"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = $'DRAW<❯ >\nLEAVE\nPROCESS<hello>\nDRAW<❯ >\nCLEAR' ]
+}
+
+@test "readline loop redraws the idle screen after an interrupt" {
+  local loop_script
+
+  loop_script="$BATS_TEST_TMPDIR/readline-loop-interrupt.sh"
+  cat >"$loop_script" <<'EOF'
+#!/usr/bin/env bash
+source "__REPO_ROOT__/lib/readline.sh"
+
+baish_session_init() { :; }
+baish_readline_enable_keyboard_protocol() { :; }
+baish_readline_disable_keyboard_protocol() { :; }
+baish_readline_install_bindings() { :; }
+baish_readline_draw_idle_screen() {
+  printf 'DRAW<%s>\n' "$1"
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+baish_readline_redraw_idle_screen() {
+  printf 'REDRAW<%s>\n' "$1"
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+baish_readline_clear_idle_screen_from_prompt_line() {
+  printf 'CLEAR\n'
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+baish_process_input_line() {
+  printf 'PROCESS<%s>\n' "$1"
+}
+
+BAISH_TEST_READ_CALLS=0
+read() {
+  local target="${*: -1}"
+
+  BAISH_TEST_READ_CALLS=$(( BAISH_TEST_READ_CALLS + 1 ))
+  if (( BAISH_TEST_READ_CALLS == 1 )); then
+    printf -v "$target" '%s' ''
+    BAISH_READLINE_INTERRUPTED=1
+    return 130
+  fi
+
+  return 1
+}
+
+baish_readline_loop
+EOF
+  sed -i "s|__REPO_ROOT__|$REPO_ROOT|g" "$loop_script"
+  chmod +x "$loop_script"
+
+  run bash -lc 'script -qec "$1" /dev/null | tr -d "\r"' bash "$loop_script"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = $'DRAW<❯ >\nREDRAW<❯ >\nCLEAR' ]
+}
+
+@test "readline loop redraws the idle screen after SIGWINCH" {
+  local loop_script
+
+  loop_script="$BATS_TEST_TMPDIR/readline-loop-winch.sh"
+  cat >"$loop_script" <<'EOF'
+#!/usr/bin/env bash
+source "__REPO_ROOT__/lib/readline.sh"
+
+baish_session_init() { :; }
+baish_readline_enable_keyboard_protocol() { :; }
+baish_readline_disable_keyboard_protocol() { :; }
+baish_readline_install_bindings() { :; }
+baish_readline_draw_idle_screen() {
+  printf 'DRAW<%s>\n' "$1"
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+baish_readline_redraw_idle_screen() {
+  printf 'REDRAW<%s>\n' "$1"
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=1
+}
+baish_readline_leave_idle_screen() {
+  printf 'LEAVE\n'
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+baish_readline_clear_idle_screen_from_prompt_line() {
+  printf 'CLEAR\n'
+  BAISH_READLINE_IDLE_SCREEN_VISIBLE=0
+}
+baish_process_input_line() {
+  printf 'PROCESS<%s>\n' "$1"
+}
+
+BAISH_TEST_READ_CALLS=0
+read() {
+  local target="${*: -1}"
+
+  BAISH_TEST_READ_CALLS=$(( BAISH_TEST_READ_CALLS + 1 ))
+  if (( BAISH_TEST_READ_CALLS == 1 )); then
+    COLUMNS=91
+    kill -WINCH $$
+    printf -v "$target" '%s' 'hello'
+    return 0
+  fi
+
+  return 1
+}
+
+baish_readline_loop
+EOF
+  sed -i "s|__REPO_ROOT__|$REPO_ROOT|g" "$loop_script"
+  chmod +x "$loop_script"
+
+  run bash -lc 'script -qec "$1" /dev/null | tr -d "\r"' bash "$loop_script"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = $'DRAW<❯ >\nREDRAW<❯ >\nLEAVE\nPROCESS<hello>\nDRAW<❯ >\nCLEAR' ]
+}
+
+@test "readline redraw picks up provider and model changes from current process state" {
+  local loop_script
+
+  loop_script="$BATS_TEST_TMPDIR/readline-loop-footer-refresh.sh"
+  cat >"$loop_script" <<'EOF'
+#!/usr/bin/env bash
+source "__REPO_ROOT__/lib/state.sh"
+source "__REPO_ROOT__/lib/footer.sh"
+source "__REPO_ROOT__/lib/readline.sh"
+
+baish_session_init() { :; }
+baish_readline_enable_keyboard_protocol() { :; }
+baish_readline_disable_keyboard_protocol() { :; }
+baish_readline_install_bindings() { :; }
+baish_provider_metadata_json() {
+  case "$1" in
+    old)
+      printf '{"id":"old","label":"Old Provider"}\n'
+      ;;
+    demo)
+      printf '{"id":"demo","label":"Demo Provider"}\n'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+baish_process_input_line() {
+  BAISH_PROCESS_SELECTED_PROVIDER='demo'
+  BAISH_PROCESS_SELECTED_MODEL='model-b'
+}
+
+BAISH_LAUNCH_CWD='/tmp/project'
+BAISH_PROCESS_SELECTED_PROVIDER='old'
+BAISH_PROCESS_SELECTED_MODEL='old-model'
+BAISH_ACTIVE_PROVIDER='stale'
+BAISH_ACTIVE_MODEL='stale-model'
+COLUMNS=80
+
+BAISH_TEST_READ_CALLS=0
+read() {
+  local target="${*: -1}"
+
+  BAISH_TEST_READ_CALLS=$(( BAISH_TEST_READ_CALLS + 1 ))
+  if (( BAISH_TEST_READ_CALLS == 1 )); then
+    printf -v "$target" '%s' '/model'
+    return 0
+  fi
+
+  return 1
+}
+
+baish_readline_loop
+EOF
+  sed -i "s|__REPO_ROOT__|$REPO_ROOT|g" "$loop_script"
+  chmod +x "$loop_script"
+
+  run bash -lc 'script -qec "$1" /dev/null | tr -d "\r"' bash "$loop_script"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'/tmp/project · Old Provider · old-model'* ]]
+  [[ "$output" == *'/tmp/project · Demo Provider · model-b'* ]]
+}
+
 @test "readline bindings install without line editing warnings" {
   run bash -lc '
     source "$1/lib/readline.sh"

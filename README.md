@@ -45,10 +45,13 @@ Development/test dependency:
 ./bin/baish
 ```
 
-You should see:
+In an interactive terminal you should see the startup header, then the idle prompt with the Status Footer:
 
 ```text
 BAISH ready. Use /quit to exit.
+❯
+───────────────────────────────────────────────────
+~/project · GitHub Copilot · gpt-5
 ```
 
 Typical first-run flow:
@@ -71,6 +74,27 @@ Example:
 ❯ /connect
 ❯ Inspect this repository and summarize the current tool support.
 ```
+
+### Status Footer
+
+The interactive idle screen shows a one-line Status Footer below the active input line.
+
+It contains:
+
+- Launch Directory
+- Provider Label
+- Model ID
+
+Behavior:
+
+- interactive-only; non-interactive mode stays footer-free
+- redraws whenever BAISH returns to the idle prompt
+- reflows on terminal resize
+- uses explicit fallbacks when values cannot be resolved:
+  - launch directory: `?`
+  - provider label: `unknown provider`
+  - model: `no model`
+- stays one line by truncating Launch Directory first, then Model ID, then Provider Label
 
 ### Multiline drafts
 
