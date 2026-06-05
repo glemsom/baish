@@ -64,7 +64,7 @@ baish_output_assistant_response() {
     local text="$1"
     printf "\n${_BAISH_COLOR_BOLD}BAISH:${_BAISH_COLOR_RESET}\n"
     if command -v gum &>/dev/null; then
-        echo "${text}" | gum format
+        echo "${text}" | gum format --theme=dracula
     else
         echo "${text}"
     fi
