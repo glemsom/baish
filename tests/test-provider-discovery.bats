@@ -124,7 +124,7 @@ assert_fn_exists() {
 # Unified provider interface: {assistant_text, tool_calls}
 # ============================================================
 
-@test "mock provider chat returns normalized shape" {
+@test "mock provider chat returns normalized shape with ok:true" {
     export BAISH_MOCK_RESPONSE="Test response"
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
@@ -133,16 +133,20 @@ assert_fn_exists() {
     result=$(provider_mock_chat '[]' '[]')
 
     # Verify JSON shape
-    local has_text has_tc
+    local has_ok has_text has_tc
+    has_ok=$(echo "${result}" | jq 'has("ok")')
     has_text=$(echo "${result}" | jq 'has("assistant_text")')
     has_tc=$(echo "${result}" | jq 'has("tool_calls")')
 
+    [[ "${has_ok}" == "true" ]]
     [[ "${has_text}" == "true" ]]
     [[ "${has_tc}" == "true" ]]
 
     # Verify values
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Test response" ]]
 }
 

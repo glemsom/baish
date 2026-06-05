@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # BAISH — Error handling and resilience layer
 #
-# Centralized error detection, classification, and handling for provider errors.
-# Error types: CONTEXT_OVERFLOW, TOKEN_EXPIRED, AUTH_FAILURE, GENERIC_ERROR
+# Centralized error handling for provider errors.
+# Providers return structured JSON on stdout:
+#   {"ok": true, "assistant_text": "...", "tool_calls": [...]}
+#   {"ok": false, "error": {"code": "...", "message": "..."}}
 #
-# Provider stderr patterns are analyzed to classify errors. The run-loop uses
-# these classifications to respond appropriately:
+# Error codes: CONTEXT_OVERFLOW, TOKEN_EXPIRED, AUTH_FAILURE, GENERIC_ERROR
+#
 #   - CONTEXT_OVERFLOW → show guidance to use /new, exit gracefully
 #   - AUTH_FAILURE     → loud error message, require user to re-authenticate
 #   - GENERIC_ERROR    → print error details, exit loop
@@ -15,34 +17,6 @@ BAISH_ERR_CONTEXT_OVERFLOW="CONTEXT_OVERFLOW"
 BAISH_ERR_TOKEN_EXPIRED="TOKEN_EXPIRED"
 BAISH_ERR_AUTH_FAILURE="AUTH_FAILURE"
 BAISH_ERR_GENERIC="GENERIC_ERROR"
-
-# Detect the type of error from provider stderr output.
-# Args: stderr_content
-# Prints the error type to stdout. Returns 0 always.
-baish_detect_error_type() {
-    local stderr_content="$1"
-
-    # Check for context overflow patterns
-    if echo "${stderr_content}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long\|CONTEXT_OVERFLOW"; then
-        echo "${BAISH_ERR_CONTEXT_OVERFLOW}"
-        return 0
-    fi
-
-    # Check for explicit token expiry signal (must be before generic auth checks)
-    if echo "${stderr_content}" | grep -qi "TOKEN_EXPIRED\|token.*expir"; then
-        echo "${BAISH_ERR_TOKEN_EXPIRED}"
-        return 0
-    fi
-
-    # Check for auth failure patterns
-    if echo "${stderr_content}" | grep -qi "AUTH_FAILURE\|invalid.*credential\|invalid.*key\|bad.*key\|OAuth.*denied\|denied.*OAuth\|401\|403"; then
-        echo "${BAISH_ERR_AUTH_FAILURE}"
-        return 0
-    fi
-
-    echo "${BAISH_ERR_GENERIC}"
-    return 0
-}
 
 # Print user-facing guidance when context overflow is detected.
 baish_print_context_overflow_help() {
@@ -73,19 +47,19 @@ baish_print_auth_failure() {
 }
 
 # Handle a provider error in the agent run-loop.
-# Classifies the error and takes appropriate action.
-# Args: stderr_content, provider_id
+# Args: error_json ({"code": "...", "message": "..."}), provider_id
 # Returns 0 to continue, 1 to break the loop.
 baish_handle_provider_error() {
-    local stderr_content="$1"
+    local error_json="$1"
     local provider_id="$2"
 
-    local error_type
-    error_type=$(baish_detect_error_type "${stderr_content}")
+    local error_code error_message
+    error_code=$(echo "${error_json}" | jq -r '.code // "GENERIC_ERROR"')
+    error_message=$(echo "${error_json}" | jq -r '.message // ""')
 
-    baish_debug "Provider error detected: type=${error_type}, provider=${provider_id}"
+    baish_debug "Provider error detected: type=${error_code}, provider=${provider_id}"
 
-    case "${error_type}" in
+    case "${error_code}" in
         "${BAISH_ERR_CONTEXT_OVERFLOW}")
             baish_print_context_overflow_help
             return 1
@@ -97,13 +71,13 @@ baish_handle_provider_error() {
             return 1
             ;;
         "${BAISH_ERR_AUTH_FAILURE}")
-            baish_print_auth_failure "${provider_id}" "Your credentials are invalid or have been revoked."
+            baish_print_auth_failure "${provider_id}" "${error_message:-Your credentials are invalid or have been revoked.}"
             return 1
             ;;
         *)
-            # Generic error — print whatever the provider sent
-            if [[ -n "${stderr_content}" ]]; then
-                baish_print_error "Provider error (${provider_id}): ${stderr_content}"
+            # Generic error — print the error message
+            if [[ -n "${error_message}" ]]; then
+                baish_print_error "Provider error (${provider_id}): ${error_message}"
             else
                 baish_print_error "Provider ${provider_id} returned an error (no details)"
             fi

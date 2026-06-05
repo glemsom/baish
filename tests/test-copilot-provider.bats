@@ -230,9 +230,11 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Hello after reconnect" ]]
     [[ $(_curl_get_count) -ge 4 ]]
 }
@@ -258,9 +260,11 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Direct response" ]]
     [[ $(_curl_get_count) -eq 1 ]]
 }
@@ -283,8 +287,15 @@ _curl_get_count() {
     curl() { _mock_curl_500 "$@"; }
     export -f curl
 
-    provider_copilot_chat '[]' '[]' || result=$?
-    [[ "${result:-0}" -ne 0 ]]
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" != "TOKEN_EXPIRED" ]]
     [[ $(_curl_get_count) -eq 1 ]]
 }
 
@@ -318,9 +329,11 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "GPT-5 response" ]]
 }
 
@@ -344,8 +357,15 @@ _curl_get_count() {
     curl() { _mock_curl_overflow "$@"; }
     export -f curl
 
-    provider_copilot_chat '[]' '[]' || result=$?
-    [[ "${result:-0}" -ne 0 ]]
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
 @test "copilot detects context overflow in Responses API" {
@@ -364,15 +384,22 @@ _curl_get_count() {
     curl() { _mock_curl_responses_overflow "$@"; }
     export -f curl
 
-    provider_copilot_chat '[]' '[]' || result=$?
-    [[ "${result:-0}" -ne 0 ]]
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
 # ============================================================
 # Loud auth failure on invalid credentials
 # ============================================================
 
-@test "copilot chat fails loudly when runtime token refresh returns 401" {
+@test "copilot chat returns AUTH_FAILURE when runtime token refresh returns 401" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_invalid_token"}' > "${auth_file}"
@@ -386,13 +413,20 @@ _curl_get_count() {
     curl() { _mock_curl_auth_fail "$@"; }
     export -f curl
 
-    local stderr_output
-    stderr_output=$(provider_copilot_chat '[]' '[]' 2>&1) || true
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
 
-    [[ "${stderr_output}" == *"invalid"* || "${stderr_output}" == *"re-authenticate"* || "${stderr_output}" == *"Bad credentials"* ]]
+    local ok error_code error_message
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    error_message=$(echo "${result}" | jq -r '.error.message')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+    [[ "${error_message}" == *"re-authenticate"* ]]
 }
 
-@test "copilot chat fails loudly when runtime token refresh returns 403" {
+@test "copilot chat returns AUTH_FAILURE when runtime token refresh returns 403" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_denied_token"}' > "${auth_file}"
@@ -406,10 +440,15 @@ _curl_get_count() {
     curl() { _mock_curl_forbidden "$@"; }
     export -f curl
 
-    local stderr_output
-    stderr_output=$(provider_copilot_chat '[]' '[]' 2>&1) || true
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
 
-    [[ "${stderr_output}" == *"invalid"* || "${stderr_output}" == *"re-authenticate"* || "${stderr_output}" == *"denied"* || "${stderr_output}" == *"not accessible"* ]]
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
 
 # ============================================================
@@ -452,11 +491,13 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local text tc_len tc_name
+    local ok text tc_len tc_name
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
     tc_len=$(echo "${result}" | jq '.tool_calls | length')
     tc_name=$(echo "${result}" | jq -r '.tool_calls[0].name')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Chat completions works" ]]
     [[ "${tc_len}" == "1" ]]
     [[ "${tc_name}" == "read" ]]
@@ -493,9 +534,11 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Responses API works" ]]
 }
 
@@ -526,10 +569,12 @@ _curl_get_count() {
     local result
     result=$(provider_copilot_chat '[]' '[]')
 
-    local tc_len tc_name
+    local ok tc_len tc_name
+    ok=$(echo "${result}" | jq -r '.ok')
     tc_len=$(echo "${result}" | jq '.tool_calls | length')
     tc_name=$(echo "${result}" | jq -r '.tool_calls[0].name')
 
+    [[ "${ok}" == "true" ]]
     [[ "${tc_len}" == "1" ]]
     [[ "${tc_name}" == "read" ]]
 }

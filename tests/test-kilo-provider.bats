@@ -361,14 +361,21 @@ _curl_get_count() {
 # Chat — mock curl tests
 # ============================================================
 
-@test "kilo chat returns error when no API key" {
+@test "kilo chat returns structured error when no API key" {
     unset KILO_API_KEY 2>/dev/null || true
 
-    provider_kilo_chat '[]' '[]' 2>/dev/null || result=$?
-    [[ "${result:-0}" -ne 0 ]]
+    local result
+    result=$(provider_kilo_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
 
-@test "kilo chat returns normalized {assistant_text, tool_calls} shape" {
+@test "kilo chat returns normalized {ok, assistant_text, tool_calls} shape" {
     export KILO_API_KEY="sk-test-key"
     BAISH_CURRENT_MODEL="anthropic/claude-sonnet-4-20250514"
 
@@ -392,15 +399,19 @@ _curl_get_count() {
     local result
     result=$(provider_kilo_chat '[]' '[]')
 
-    local has_text has_tc
+    local has_ok has_text has_tc
+    has_ok=$(echo "${result}" | jq 'has("ok")')
     has_text=$(echo "${result}" | jq 'has("assistant_text")')
     has_tc=$(echo "${result}" | jq 'has("tool_calls")')
 
+    [[ "${has_ok}" == "true" ]]
     [[ "${has_text}" == "true" ]]
     [[ "${has_tc}" == "true" ]]
 
-    local text
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
     text=$(echo "${result}" | jq -r '.assistant_text')
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "Kilo chat works" ]]
 }
 
@@ -539,7 +550,7 @@ _curl_get_count() {
 # Error handling
 # ============================================================
 
-@test "kilo detects context overflow from chat response" {
+@test "kilo detects context overflow from chat response (structured JSON)" {
     export KILO_API_KEY="sk-test-key"
     BAISH_CURRENT_MODEL="openai/gpt-4o"
 
@@ -550,11 +561,18 @@ _curl_get_count() {
     curl() { _mock_curl_overflow "$@"; }
     export -f curl
 
-    provider_kilo_chat '[]' '[]' 2>/dev/null || result=$?
-    [[ "${result:-0}" -ne 0 ]]
+    local result
+    result=$(provider_kilo_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
-@test "kilo fails loudly on 401 auth error" {
+@test "kilo returns structed AUTH_FAILURE on 401 error" {
     export KILO_API_KEY="sk-invalid-key"
     BAISH_CURRENT_MODEL="openai/gpt-4o"
 
@@ -565,13 +583,18 @@ _curl_get_count() {
     curl() { _mock_curl_401 "$@"; }
     export -f curl
 
-    local stderr_output
-    stderr_output=$(provider_kilo_chat '[]' '[]' 2>&1) || true
+    local result
+    result=$(provider_kilo_chat '[]' '[]')
 
-    [[ "${stderr_output}" == *"invalid"* || "${stderr_output}" == *"re-authenticate"* || "${stderr_output}" == *"401"* ]]
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
 
-@test "kilo fails loudly on 403 forbidden error" {
+@test "kilo returns structed AUTH_FAILURE on 403 error" {
     export KILO_API_KEY="sk-forbidden-key"
     BAISH_CURRENT_MODEL="openai/gpt-4o"
 
@@ -582,10 +605,15 @@ _curl_get_count() {
     curl() { _mock_curl_403 "$@"; }
     export -f curl
 
-    local stderr_output
-    stderr_output=$(provider_kilo_chat '[]' '[]' 2>&1) || true
+    local result
+    result=$(provider_kilo_chat '[]' '[]')
 
-    [[ "${stderr_output}" == *"invalid"* || "${stderr_output}" == *"re-authenticate"* || "${stderr_output}" == *"403"* ]]
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
 
 @test "kilo reports generic error on 500 server error" {
@@ -599,10 +627,15 @@ _curl_get_count() {
     curl() { _mock_curl_500 "$@"; }
     export -f curl
 
-    local stderr_output
-    stderr_output=$(provider_kilo_chat '[]' '[]' 2>&1) || true
+    local result
+    result=$(provider_kilo_chat '[]' '[]')
 
-    [[ "${stderr_output}" == *"500"* || "${stderr_output}" == *"error"* ]]
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
 }
 
 # ============================================================

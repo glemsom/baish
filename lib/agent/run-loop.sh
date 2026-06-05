@@ -34,15 +34,28 @@ baish_agent_run_user_message() {
         request_json=$(baish_session_build_request "${tools_json}")
 
         # Call the provider
-        local response_json stderr_content stderr_file
+        local response_json stderr_file
         stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
         response_json=$(baish_agent_provider_chat_capture "${request_json}")
         local exit_code=$?
-        stderr_content=$(cat "${stderr_file}" 2>/dev/null || echo "")
 
+        # Infrastructure failure (curl crash, etc.)
         if (( exit_code != 0 )); then
-            baish_debug_state "processing" "error" "provider exit code ${exit_code}"
-            if ! baish_handle_provider_error "${stderr_content}" "${BAISH_CURRENT_PROVIDER}"; then
+            baish_debug_state "processing" "error" "provider infra exit code ${exit_code}"
+            local stderr_content
+            stderr_content=$(cat "${stderr_file}" 2>/dev/null || echo "")
+            baish_print_error "Provider ${BAISH_CURRENT_PROVIDER} infrastructure failure: ${stderr_content}"
+            break
+        fi
+
+        # Parse structured response — check ok field for provider-level errors
+        local ok error_json
+        ok=$(echo "${response_json}" | jq -r '.ok // false')
+
+        if [[ "${ok}" != "true" ]]; then
+            baish_debug_state "processing" "error" "provider error response"
+            error_json=$(echo "${response_json}" | jq -c '.error // {"code": "GENERIC_ERROR", "message": "Unknown"}')
+            if ! baish_handle_provider_error "${error_json}" "${BAISH_CURRENT_PROVIDER}"; then
                 break
             fi
             break

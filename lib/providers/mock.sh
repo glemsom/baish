@@ -5,12 +5,13 @@
 # Pre-programmed responses for testing (set by tests or debug use)
 # BAISH_MOCK_RESPONSE: fixed assistant response text
 # BAISH_MOCK_TOOL_CALLS: JSON array of pre-programmed tool calls
-# BAISH_MOCK_EXIT_CODE: force a non-zero exit code (default: 0)
-# BAISH_MOCK_STDERR: content to write to stderr (for error simulation)
+# BAISH_MOCK_EXIT_CODE: force a non-zero exit code for infrastructure failure (default: 0)
+# BAISH_MOCK_ERROR_CODE: error code for structured error response (TOKEN_EXPIRED, AUTH_FAILURE, CONTEXT_OVERFLOW)
+#   When set, mock returns {"ok": false, "error": {"code": "...", "message": "..."}} on stdout instead of failing
 BAISH_MOCK_RESPONSE="${BAISH_MOCK_RESPONSE:-I am the mock provider. Your message was received.}"
 BAISH_MOCK_TOOL_CALLS="${BAISH_MOCK_TOOL_CALLS:-}"
 BAISH_MOCK_EXIT_CODE="${BAISH_MOCK_EXIT_CODE:-0}"
-BAISH_MOCK_STDERR="${BAISH_MOCK_STDERR:-}"
+BAISH_MOCK_ERROR_CODE="${BAISH_MOCK_ERROR_CODE:-}"
 
 provider_mock_metadata() {
     jq -n \
@@ -31,12 +32,17 @@ provider_mock_chat() {
     local messages_json="$1"
     local tools_json="$2"
 
-    # Simulate error scenarios for testing
+    # Infrastructure failure (curl crash, etc.) — exit code only
     if [[ "${BAISH_MOCK_EXIT_CODE}" != "0" ]]; then
-        if [[ -n "${BAISH_MOCK_STDERR}" ]]; then
-            echo "${BAISH_MOCK_STDERR}" >&2
-        fi
         return "${BAISH_MOCK_EXIT_CODE}"
+    fi
+
+    # Structured error simulation (provider-level error on stdout)
+    if [[ -n "${BAISH_MOCK_ERROR_CODE}" ]]; then
+        jq -n \
+            --arg code "${BAISH_MOCK_ERROR_CODE}" \
+            '{"ok": false, "error": {"code": $code, "message": "mock error simulation"}}'
+        return 0
     fi
 
     local assistant_text tool_calls
@@ -49,7 +55,7 @@ provider_mock_chat() {
     fi
 
     jq -n --arg text "${assistant_text}" --argjson tc "${tool_calls}" \
-        '{"assistant_text": $text, "tool_calls": $tc}'
+        '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
 }
 
 provider_mock_has_env_auth() {

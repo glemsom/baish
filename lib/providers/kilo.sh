@@ -165,8 +165,8 @@ provider_kilo_chat() {
     api_key=$(_kilo_load_api_key)
 
     if [[ -z "${api_key}" ]]; then
-        baish_print_error "Kilo: No API key found. Run /connect to authenticate." >&2
-        return 1
+        jq -n '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": "No API key found. Run /connect to authenticate."}}'
+        return 0
     fi
 
     local model="${BAISH_CURRENT_MODEL}"
@@ -218,23 +218,21 @@ provider_kilo_chat() {
         local error_msg
         error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
 
-        # Detect context overflow
+        # Detect error type and return structured JSON
         if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
             baish_debug "Kilo: context overflow detected"
-            echo "CONTEXT_OVERFLOW" >&2
-            return 1
+            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
+            return 0
         fi
 
-        # Detect auth failure
         if [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
             baish_debug "Kilo: auth failure (HTTP ${http_code})"
-            echo "AUTH_FAILURE" >&2
-            baish_print_error "Kilo: API key is invalid or expired. Please re-authenticate with /connect." >&2
-            return 1
+            jq -n --arg msg "Kilo: API key is invalid or expired. Please re-authenticate with /connect." '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": $msg}}'
+            return 0
         fi
 
-        baish_print_error "Kilo: Chat error (HTTP ${http_code}): ${error_msg}" >&2
-        return 1
+        jq -n --arg msg "Kilo: Chat error (HTTP ${http_code}): ${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+        return 0
     fi
 
     # Parse response
@@ -255,5 +253,5 @@ provider_kilo_chat() {
     jq -n \
         --arg text "${assistant_text}" \
         --argjson tc "${tool_calls}" \
-        '{"assistant_text": $text, "tool_calls": $tc}'
+        '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
 }

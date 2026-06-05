@@ -32,91 +32,8 @@ teardown() {
 }
 
 # ============================================================
-# Error type detection
+# Error type detection (baish_detect_error_type removed — providers now return structured JSON)
 # ============================================================
-
-@test "detects CONTEXT_OVERFLOW from context_length_exceeded pattern" {
-    local stderr="Error: context_length_exceeded - input is too long"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "CONTEXT_OVERFLOW" ]]
-}
-
-@test "detects CONTEXT_OVERFLOW from context exceeded pattern" {
-    local stderr="Request failed: context window exceeded maximum"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "CONTEXT_OVERFLOW" ]]
-}
-
-@test "detects CONTEXT_OVERFLOW from too long pattern" {
-    local stderr="The prompt is too long for this model"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "CONTEXT_OVERFLOW" ]]
-}
-
-@test "detects CONTEXT_OVERFLOW from explicit CONTEXT_OVERFLOW signal" {
-    local stderr="CONTEXT_OVERFLOW"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "CONTEXT_OVERFLOW" ]]
-}
-
-@test "detects TOKEN_EXPIRED from explicit signal" {
-    local stderr="TOKEN_EXPIRED"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "TOKEN_EXPIRED" ]]
-}
-
-@test "detects TOKEN_EXPIRED from token expiry pattern" {
-    local stderr="Authentication token expired at epoch 1234567890"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "TOKEN_EXPIRED" ]]
-}
-
-@test "detects AUTH_FAILURE from 401 status" {
-    local stderr="HTTP 401 Unauthorized - invalid credentials"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "AUTH_FAILURE" ]]
-}
-
-@test "detects AUTH_FAILURE from 403 status" {
-    local stderr="HTTP 403 Forbidden - access denied"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "AUTH_FAILURE" ]]
-}
-
-@test "detects AUTH_FAILURE from invalid key message" {
-    local stderr="Invalid API key provided"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "AUTH_FAILURE" ]]
-}
-
-@test "detects AUTH_FAILURE from denied OAuth message" {
-    local stderr="OAuth authorization was denied by the user"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "AUTH_FAILURE" ]]
-}
-
-@test "classifies unknown errors as GENERIC_ERROR" {
-    local stderr="Something went wrong: connection reset"
-    local result
-    result=$(baish_detect_error_type "${stderr}")
-    [[ "${result}" == "GENERIC_ERROR" ]]
-}
-
-@test "handles empty stderr as GENERIC_ERROR" {
-    local result
-    result=$(baish_detect_error_type "")
-    [[ "${result}" == "GENERIC_ERROR" ]]
-}
 
 # ============================================================
 # Context overflow handling
@@ -177,24 +94,24 @@ teardown() {
 # Provider error handling
 # ============================================================
 
-@test "baish_handle_provider_error returns 1 for context overflow" {
-    local stderr="CONTEXT_OVERFLOW"
+@test "baish_handle_provider_error returns 1 for context overflow (JSON error)" {
+    local error_json='{"code":"CONTEXT_OVERFLOW","message":"input too long"}'
     local result=0
-    baish_handle_provider_error "${stderr}" "mock" 2>/dev/null || result=$?
+    baish_handle_provider_error "${error_json}" "mock" 2>/dev/null || result=$?
     [[ "${result}" -eq 1 ]]
 }
 
-@test "baish_handle_provider_error returns 1 for auth failure" {
-    local stderr="AUTH_FAILURE"
+@test "baish_handle_provider_error returns 1 for auth failure (JSON error)" {
+    local error_json='{"code":"AUTH_FAILURE","message":"invalid key"}'
     local result=0
-    baish_handle_provider_error "${stderr}" "mock" 2>/dev/null || result=$?
+    baish_handle_provider_error "${error_json}" "mock" 2>/dev/null || result=$?
     [[ "${result}" -eq 1 ]]
 }
 
-@test "baish_handle_provider_error returns 1 for generic error" {
-    local stderr="Something unexpected happened"
+@test "baish_handle_provider_error returns 1 for generic error (JSON error)" {
+    local error_json='{"code":"GENERIC_ERROR","message":"something unexpected"}'
     local result=0
-    baish_handle_provider_error "${stderr}" "mock" 2>/dev/null || result=$?
+    baish_handle_provider_error "${error_json}" "mock" 2>/dev/null || result=$?
     [[ "${result}" -eq 1 ]]
 }
 
@@ -202,49 +119,65 @@ teardown() {
 # Mock provider error simulation
 # ============================================================
 
-@test "mock provider returns success by default" {
+@test "mock provider returns success with ok:true by default" {
     BAISH_CURRENT_MODEL="mock-model"
     local result
     result=$(provider_mock_chat '[]' '[]' 2>/dev/null)
     local exit_code=$?
     [[ "${exit_code}" -eq 0 ]]
+    local ok
+    ok=$(echo "${result}" | jq -r '.ok')
+    [[ "${ok}" == "true" ]]
     [[ "${result}" == *"I am the mock provider"* ]]
 }
 
-@test "mock provider returns forced exit code" {
+@test "mock provider returns forced exit code for infrastructure failure" {
     BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR=""
     BAISH_CURRENT_MODEL="mock-model"
     local exit_code=0
     provider_mock_chat '[]' '[]' 2>/dev/null || exit_code=$?
     [[ "${exit_code}" -eq 1 ]]
 }
 
-@test "mock provider writes stderr content when simulating errors" {
-    BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR="CONTEXT_OVERFLOW"
+@test "mock provider returns structured error for CONTEXT_OVERFLOW via BAISH_MOCK_ERROR_CODE" {
+    BAISH_MOCK_ERROR_CODE="CONTEXT_OVERFLOW"
     BAISH_CURRENT_MODEL="mock-model"
-    local stderr_output
-    stderr_output=$(provider_mock_chat '[]' '[]' 2>&1 1>/dev/null) || true
-    [[ "${stderr_output}" == *"CONTEXT_OVERFLOW"* ]]
+    local result
+    result=$(provider_mock_chat '[]' '[]')
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
-@test "mock provider can simulate auth failure via stderr" {
-    BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR="AUTH_FAILURE"
+@test "mock provider returns structured error for AUTH_FAILURE via BAISH_MOCK_ERROR_CODE" {
+    BAISH_MOCK_ERROR_CODE="AUTH_FAILURE"
     BAISH_CURRENT_MODEL="mock-model"
-    local stderr_output
-    stderr_output=$(provider_mock_chat '[]' '[]' 2>&1 1>/dev/null) || true
-    [[ "${stderr_output}" == *"AUTH_FAILURE"* ]]
+    local result
+    result=$(provider_mock_chat '[]' '[]')
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
 
-@test "mock provider does not write stderr on success" {
-    BAISH_MOCK_EXIT_CODE=0
-    BAISH_MOCK_STDERR="should not appear"
+@test "mock provider returns ok:true with empty stderr on success" {
     BAISH_CURRENT_MODEL="mock-model"
     local stderr_output
     stderr_output=$(provider_mock_chat '[]' '[]' 2>&1 1>/dev/null)
     [[ -z "${stderr_output}" ]]
+}
+
+@test "mock provider structured error has message field" {
+    BAISH_MOCK_ERROR_CODE="GENERIC_ERROR"
+    BAISH_CURRENT_MODEL="mock-model"
+    local result
+    result=$(provider_mock_chat '[]' '[]')
+    local error_message
+    error_message=$(echo "${result}" | jq -r '.error.message')
+    [[ -n "${error_message}" ]]
 }
 
 # ============================================================
@@ -356,28 +289,28 @@ teardown() {
 # Integration: run-loop with mock provider
 # ============================================================
 
-@test "run-loop captures stderr from mock provider error" {
+@test "run-loop receives structured error from mock provider" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
-    BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR="CONTEXT_OVERFLOW"
+    BAISH_MOCK_ERROR_CODE="CONTEXT_OVERFLOW"
     local messages='[{"role":"user","content":"hello"}]'
     local tools="[]"
     local request
     request=$(jq -n --argjson msg "${messages}" --argjson t "${tools}" '{"messages":$msg,"tools":$t}')
     > "${BAISH_CHAT_STDERR_FILE}"
     local response
-    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null) || true
-    local stderr_content
-    stderr_content=$(cat "${BAISH_CHAT_STDERR_FILE}" 2>/dev/null || echo "")
-    [[ "${stderr_content}" == *"CONTEXT_OVERFLOW"* ]]
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+    local ok error_code
+    ok=$(echo "${response}" | jq -r '.ok')
+    error_code=$(echo "${response}" | jq -r '.error.code')
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
-@test "run-loop handles context overflow and breaks the loop" {
+@test "run-loop handles context overflow via structured error and breaks the loop" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
-    BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR="CONTEXT_OVERFLOW"
+    BAISH_MOCK_ERROR_CODE="CONTEXT_OVERFLOW"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
@@ -386,11 +319,10 @@ teardown() {
     [[ "${output}" == *"/new"* ]] || [[ "${output}" == *"context"* ]]
 }
 
-@test "run-loop handles auth failure and breaks the loop" {
+@test "run-loop handles auth failure via structured error and breaks the loop" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
-    BAISH_MOCK_EXIT_CODE=1
-    BAISH_MOCK_STDERR="AUTH_FAILURE"
+    BAISH_MOCK_ERROR_CODE="AUTH_FAILURE"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
@@ -399,12 +331,11 @@ teardown() {
     [[ "${output}" == *"/connect"* ]] || [[ "${output}" == *"Authentication"* ]]
 }
 
-@test "run-loop succeeds with mock provider on normal response" {
+@test "run-loop succeeds with mock provider on ok:true response" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
     BAISH_MOCK_RESPONSE="Hello from mock"
-    BAISH_MOCK_EXIT_CODE=0
-    BAISH_MOCK_STDERR=""
+    BAISH_MOCK_ERROR_CODE=""
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0

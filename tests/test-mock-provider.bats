@@ -25,14 +25,16 @@ teardown() {
     rm -rf "${BAISH_STATE_DIR}"
 }
 
-# Test: mock provider returns a fixed response
-@test "mock provider returns fixed assistant response" {
+# Test: mock provider returns a fixed response with ok:true
+@test "mock provider returns fixed assistant response with ok:true" {
     local response
     response=$(provider_mock_chat '[]' '[]')
 
-    local text
+    local ok text
+    ok=$(echo "${response}" | jq -r '.ok')
     text=$(echo "${response}" | jq -r '.assistant_text')
 
+    [[ "${ok}" == "true" ]]
     [[ "${text}" == "I am the mock provider. Your message was received." ]]
 }
 

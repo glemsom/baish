@@ -237,9 +237,8 @@ provider_copilot_list_models() {
 
 # --- Chat ---
 # Internal helper: makes a single chat API call (no retry)
-# Returns 0 on success, 1 on failure.
-# On TOKEN_EXPIRED, prints "TOKEN_EXPIRED" to stderr.
-# On CONTEXT_OVERFLOW, prints "CONTEXT_OVERFLOW" to stderr.
+# Always returns 0; structured JSON with ok field on stdout.
+# Error conditions are encoded as {"ok": false, "error": {"code": "...", "message": "..."}}.
 _copilot_chat_single() {
     local messages_json="$1"
     local tools_json="$2"
@@ -321,23 +320,23 @@ _copilot_chat_single() {
         body=$(echo "${response}" | sed '$d')
 
         if [[ -z "${body}" ]]; then
-            baish_print_error "Empty response from Copilot Responses API" >&2
-            return 1
+            jq -n '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": "Empty response from Copilot Responses API"}}'
+            return 0
         fi
 
         if [[ "${http_code}" != "200" ]]; then
             local error_msg
             error_msg=$(echo "${body}" | jq -r '.message // .error // "Unknown error"' 2>/dev/null)
             if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
-                echo "CONTEXT_OVERFLOW" >&2
-                return 1
+                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
+                return 0
             fi
             if [[ "${http_code}" == "401" ]]; then
-                echo "TOKEN_EXPIRED" >&2
-                return 1
+                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "TOKEN_EXPIRED", "message": $msg}}'
+                return 0
             fi
-            baish_print_error "Copilot Responses API error (HTTP ${http_code}): ${error_msg}" >&2
-            return 1
+            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+            return 0
         fi
 
         # Parse Responses API response
@@ -359,7 +358,7 @@ _copilot_chat_single() {
         jq -n \
             --arg text "${assistant_text}" \
             --argjson tc "${tool_calls}" \
-            '{"assistant_text": $text, "tool_calls": $tc}'
+            '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
 
     else
         # Chat Completions API for all other models
@@ -409,15 +408,15 @@ _copilot_chat_single() {
             local error_msg
             error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
             if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
-                echo "CONTEXT_OVERFLOW" >&2
-                return 1
+                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
+                return 0
             fi
             if [[ "${http_code}" == "401" ]]; then
-                echo "TOKEN_EXPIRED" >&2
-                return 1
+                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "TOKEN_EXPIRED", "message": $msg}}'
+                return 0
             fi
-            baish_print_error "Copilot Chat Completions error (HTTP ${http_code}): ${error_msg}" >&2
-            return 1
+            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+            return 0
         fi
 
         # Parse Chat Completions response
@@ -438,42 +437,40 @@ _copilot_chat_single() {
         jq -n \
             --arg text "${assistant_text}" \
             --argjson tc "${tool_calls}" \
-            '{"assistant_text": $text, "tool_calls": $tc}'
+            '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
     fi
 }
 
 # Public chat entry point with auto-reconnect on token expiry.
-# Calls _copilot_chat_single; if it fails with TOKEN_EXPIRED,
+# Calls _copilot_chat_single; if it responds with error.code TOKEN_EXPIRED,
 # refreshes the runtime token and retries exactly once.
+# Returns structured JSON on stdout; exit code 0 always (even for errors).
 provider_copilot_chat() {
     local messages_json="$1"
     local tools_json="$2"
 
     # Refresh runtime token before first attempt
     if ! _copilot_refresh_runtime_token; then
-        baish_print_error "Copilot: Authentication failed. Please re-authenticate with /connect." >&2
-        return 1
+        jq -n '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": "Authentication failed. Please re-authenticate with /connect."}}'
+        return 0
     fi
-
-    # Use a temp file to capture stderr separately from stdout
-    local stderr_file
-    stderr_file=$(mktemp /tmp/baish_copilot_stderr.XXXXXX)
 
     # First attempt
     local result
-    result=$(_copilot_chat_single "${messages_json}" "${tools_json}" 2>"${stderr_file}")
-    local exit_code=$?
-    local stderr_content
-    stderr_content=$(cat "${stderr_file}")
-    rm -f "${stderr_file}"
+    result=$(_copilot_chat_single "${messages_json}" "${tools_json}")
 
-    if [[ "${exit_code}" == "0" ]]; then
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok // false')
+
+    if [[ "${ok}" == "true" ]]; then
         echo "${result}"
         return 0
     fi
 
-    # Only auto-reconnect on TOKEN_EXPIRED (HTTP 401)
-    if echo "${stderr_content}" | grep -q "TOKEN_EXPIRED"; then
+    # Check error code for auto-reconnect
+    error_code=$(echo "${result}" | jq -r '.error.code // ""')
+
+    if [[ "${error_code}" == "TOKEN_EXPIRED" ]]; then
         baish_debug "Copilot: token expired during chat, refreshing and retrying"
 
         # Force refresh the runtime token
@@ -481,34 +478,25 @@ provider_copilot_chat() {
         BAISH_COPILOT_RUNTIME_EXPIRY=0
 
         if ! _copilot_refresh_runtime_token; then
-            baish_print_error "Copilot: Authentication failed. Please re-authenticate with /connect." >&2
-            return 1
+            jq -n '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": "Authentication failed. Please re-authenticate with /connect."}}'
+            return 0
         fi
 
         # Retry
-        stderr_file=$(mktemp /tmp/baish_copilot_stderr.XXXXXX)
-        result=$(_copilot_chat_single "${messages_json}" "${tools_json}" 2>"${stderr_file}")
-        local retry_exit=$?
-        local retry_stderr
-        retry_stderr=$(cat "${stderr_file}")
-        rm -f "${stderr_file}"
+        result=$(_copilot_chat_single "${messages_json}" "${tools_json}")
 
-        if [[ "${retry_exit}" == "0" ]]; then
+        ok=$(echo "${result}" | jq -r '.ok // false')
+        if [[ "${ok}" == "true" ]]; then
             echo "${result}"
             return 0
         fi
 
-        # Retry also failed — propagate error
-        if [[ -n "${retry_stderr}" ]]; then
-            echo "${retry_stderr}" >&2
-        fi
-        baish_print_error "Copilot: Chat failed after reconnect attempt." >&2
-        return "${retry_exit}"
+        # Retry also failed — propagate the retry error
+        echo "${result}"
+        return 0
     fi
 
-    # Non-401 error — propagate as-is
-    if [[ -n "${stderr_content}" ]]; then
-        echo "${stderr_content}" >&2
-    fi
-    return "${exit_code}"
+    # Non-token-expiry error — propagate as-is
+    echo "${result}"
+    return 0
 }
