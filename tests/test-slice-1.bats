@@ -128,8 +128,8 @@ teardown() {
     [[ -z "${output}" ]]
 }
 
-# Test: tool execution dispatches to stubs
-@test "tool execution returns NOT_IMPLEMENTED for read tool" {
+# Test: tool execution dispatches to read tool
+@test "tool execution dispatches to read tool and returns FILE_NOT_FOUND for missing file" {
     local result
     result=$(baish_tool_execute "read" '{"path":"test.txt"}')
 
@@ -138,7 +138,7 @@ teardown() {
     error_code=$(echo "${result}" | jq -r '.error.code')
 
     [[ "${ok}" == "false" ]]
-    [[ "${error_code}" == "NOT_IMPLEMENTED" ]]
+    [[ "${error_code}" == "FILE_NOT_FOUND" ]]
 }
 
 # Test: agent loop processes user message with mock provider
