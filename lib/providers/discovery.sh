@@ -3,8 +3,13 @@
 # Scans lib/providers/*.sh, sources them, validates required functions,
 # detects ID collisions, and registers providers.
 
-BAISH_DISCOVERED_PROVIDERS=()
-BAISH_PROVIDER_IDS=()
+# Guard against re-initialization when discovery.sh is sourced
+# mid-loop (the glob includes discovery.sh itself)
+if [[ -z "${BAISH_DISCOVERY_INIT:-}" ]]; then
+    BAISH_DISCOVERY_INIT=1
+    BAISH_DISCOVERED_PROVIDERS=()
+    BAISH_PROVIDER_IDS=()
+fi
 
 # Discover and register all providers from lib/providers/*.sh
 baish_discover_providers() {
@@ -61,6 +66,10 @@ baish_discover_providers() {
 
         BAISH_PROVIDER_IDS+=("${provider_id}")
         baish_debug "Discovered provider: ${provider_id}"
+
+        # Update before_funcs for next iteration so diff only captures
+        # functions introduced by the next provider file
+        before_funcs="${after_funcs}"
     done
 }
 
