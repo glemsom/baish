@@ -231,19 +231,16 @@ provider_copilot_list_models() {
 }
 
 # --- Chat ---
-provider_copilot_chat() {
+# Internal helper: makes a single chat API call (no retry)
+# Returns 0 on success, 1 on failure.
+# On TOKEN_EXPIRED, prints "TOKEN_EXPIRED" to stderr.
+# On CONTEXT_OVERFLOW, prints "CONTEXT_OVERFLOW" to stderr.
+_copilot_chat_single() {
     local messages_json="$1"
     local tools_json="$2"
-
-    # Refresh runtime token
-    if ! _copilot_refresh_runtime_token; then
-        baish_print_error "Copilot: Authentication failed. Please re-authenticate with /connect." >&2
-        return 1
-    fi
-
     local model="${BAISH_CURRENT_MODEL}"
     local auth_header="Bearer ${BAISH_COPILOT_RUNTIME_TOKEN}"
-    local url response stderr_capture
+    local url response
 
     # Route based on model family
     if [[ "${model}" == gpt-5* ]]; then
@@ -304,14 +301,14 @@ provider_copilot_chat() {
 
         baish_debug "Copilot: sending to Responses API (model: ${model})"
 
-        response=$(curl -s \
+        response=$(curl -s -w "\n%{http_code}" \
             -X POST \
             -H "Authorization: ${auth_header}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -H "Copilot-Integration-Id: vscode" \
             -d "${payload}" \
-            "https://api.githubcopilot.com/responses" 2>&1)
+            "https://api.githubcopilot.com/responses" 2>/dev/null)
 
         local http_code
         http_code=$(echo "${response}" | tail -1)
@@ -433,4 +430,75 @@ provider_copilot_chat() {
             --argjson tc "${tool_calls}" \
             '{"assistant_text": $text, "tool_calls": $tc}'
     fi
+}
+
+# Public chat entry point with auto-reconnect on token expiry.
+# Calls _copilot_chat_single; if it fails with TOKEN_EXPIRED,
+# refreshes the runtime token and retries exactly once.
+provider_copilot_chat() {
+    local messages_json="$1"
+    local tools_json="$2"
+
+    # Refresh runtime token before first attempt
+    if ! _copilot_refresh_runtime_token; then
+        baish_print_error "Copilot: Authentication failed. Please re-authenticate with /connect." >&2
+        return 1
+    fi
+
+    # Use a temp file to capture stderr separately from stdout
+    local stderr_file
+    stderr_file=$(mktemp /tmp/baish_copilot_stderr.XXXXXX)
+
+    # First attempt
+    local result
+    result=$(_copilot_chat_single "${messages_json}" "${tools_json}" 2>"${stderr_file}")
+    local exit_code=$?
+    local stderr_content
+    stderr_content=$(cat "${stderr_file}")
+    rm -f "${stderr_file}"
+
+    if [[ "${exit_code}" == "0" ]]; then
+        echo "${result}"
+        return 0
+    fi
+
+    # Only auto-reconnect on TOKEN_EXPIRED (HTTP 401)
+    if echo "${stderr_content}" | grep -q "TOKEN_EXPIRED"; then
+        baish_debug "Copilot: token expired during chat, refreshing and retrying"
+
+        # Force refresh the runtime token
+        BAISH_COPILOT_RUNTIME_TOKEN=""
+        BAISH_COPILOT_RUNTIME_EXPIRY=0
+
+        if ! _copilot_refresh_runtime_token; then
+            baish_print_error "Copilot: Authentication failed. Please re-authenticate with /connect." >&2
+            return 1
+        fi
+
+        # Retry
+        stderr_file=$(mktemp /tmp/baish_copilot_stderr.XXXXXX)
+        result=$(_copilot_chat_single "${messages_json}" "${tools_json}" 2>"${stderr_file}")
+        local retry_exit=$?
+        local retry_stderr
+        retry_stderr=$(cat "${stderr_file}")
+        rm -f "${stderr_file}"
+
+        if [[ "${retry_exit}" == "0" ]]; then
+            echo "${result}"
+            return 0
+        fi
+
+        # Retry also failed — propagate error
+        if [[ -n "${retry_stderr}" ]]; then
+            echo "${retry_stderr}" >&2
+        fi
+        baish_print_error "Copilot: Chat failed after reconnect attempt." >&2
+        return "${retry_exit}"
+    fi
+
+    # Non-401 error — propagate as-is
+    if [[ -n "${stderr_content}" ]]; then
+        echo "${stderr_content}" >&2
+    fi
+    return "${exit_code}"
 }
