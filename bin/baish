@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# BAISH — Bash-first terminal AI coding agent
+# Usage: baish [directory]
+
+set -euo pipefail
+
+BAISH_VERSION="0.1.0"
+
+baish_usage() {
+    cat <<EOF
+BAISH — Bash-first terminal AI coding agent (v${BAISH_VERSION})
+
+Usage: baish [directory]
+
+Arguments:
+  directory    Project directory to work in (default: \$PWD)
+
+Environment variables:
+  BAISH_MAX_TOOL_ROUNDS   Max tool call rounds per message (default: 20)
+  BAISH_MAX_TOOL_CALLS    Max total tool calls per session (default: 100)
+  BAISH_BASH_TIMEOUT      Shell command timeout in seconds (default: 120)
+  BAISH_DEBUG             Enable debug logging: 0=off, 1=on (default: 0)
+
+Slash commands:
+  /help       Show this help
+  /quit, /exit  Exit the agent
+  /new        Clear conversation history
+
+EOF
+}
+
+# Resolve the script's own directory
+BAISH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Source core modules
+source "${BAISH_ROOT}/lib/agent/config.sh"
+source "${BAISH_ROOT}/lib/state.sh"
+source "${BAISH_ROOT}/lib/tools/tools.sh"
+source "${BAISH_ROOT}/lib/agent/display.sh"
+source "${BAISH_ROOT}/lib/agent/session.sh"
+source "${BAISH_ROOT}/lib/agent/run-loop.sh"
+
+# Parse arguments
+BAISH_LAUNCH_DIR="${1:-$(pwd)}"
+if [[ "${BAISH_LAUNCH_DIR}" == "--help" || "${BAISH_LAUNCH_DIR}" == "-h" ]]; then
+    baish_usage
+    exit 0
+fi
+
+# Validate launch directory
+if [[ ! -d "${BAISH_LAUNCH_DIR}" ]]; then
+    baish_print_error "Directory not found: ${BAISH_LAUNCH_DIR}"
+    exit 1
+fi
+cd "${BAISH_LAUNCH_DIR}" || exit 1
+
+baish_debug "BAISH v${BAISH_VERSION} starting in ${BAISH_LAUNCH_DIR}"
+
+# Initialize state directory
+baish_state_init
+
+# Discover and source providers
+declare -A BAISH_DISCOVERED_PROVIDERS=()
+BAISH_PROVIDER_IDS=()
+
+baish_discover_providers() {
+    local providers_dir="${BAISH_ROOT}/lib/providers"
+    if [[ ! -d "${providers_dir}" ]]; then
+        baish_debug "No providers directory found"
+        return
+    fi
+
+    local provider_file
+    for provider_file in "${providers_dir}"/*.sh; do
+        [[ -f "${provider_file}" ]] || continue
+
+        local filename
+        filename=$(basename "${provider_file}" .sh)
+
+        # Detect functions declared by sourcing the provider
+        local before_funcs after_funcs new_funcs
+        before_funcs=$(declare -F | awk '{print $3}')
+        source "${provider_file}"
+        after_funcs=$(declare -F | awk '{print $3}')
+        new_funcs=$(comm -13 <(echo "${before_funcs}") <(echo "${after_funcs}"))
+
+        # Extract provider ID from function names (provider_<id>_*)
+        local provider_id
+        provider_id=$(echo "${new_funcs}" | grep -oP '^provider_\K[^_]+' | head -1)
+
+        if [[ -z "${provider_id}" ]]; then
+            baish_debug "Could not extract provider ID from ${filename}"
+            continue
+        fi
+
+        # Check for ID collision
+        if [[ -n "${BAISH_DISCOVERED_PROVIDERS[${provider_id}]+_}" ]]; then
+            baish_print_error "Provider ID collision: ${provider_id} already registered"
+            exit 1
+        fi
+
+        # Validate required functions
+        local required_funcs=("provider_${provider_id}_metadata" "provider_${provider_id}_auth" "provider_${provider_id}_list_models" "provider_${provider_id}_chat")
+        local missing=0
+        local func
+        for func in "${required_funcs[@]}"; do
+            if ! declare -F "${func}" &>/dev/null; then
+                baish_print_error "Provider ${provider_id} missing required function: ${func}"
+                missing=1
+                break
+            fi
+        done
+
+        if (( missing )); then
+            continue
+        fi
+
+        BAISH_DISCOVERED_PROVIDERS["${provider_id}"]="${provider_file}"
+        BAISH_PROVIDER_IDS+=("${provider_id}")
+        baish_debug "Discovered provider: ${provider_id}"
+    done
+}
+
+baish_discover_providers
+
+# Select provider (try state, then default to mock if available)
+baish_select_provider() {
+    # Try loading from state
+    if baish_state_read; then
+        if [[ -n "${BAISH_DISCOVERED_PROVIDERS[${BAISH_STATE_PROVIDER}]+_}" ]]; then
+            BAISH_CURRENT_PROVIDER="${BAISH_STATE_PROVIDER}"
+            BAISH_CURRENT_MODEL="${BAISH_STATE_MODEL}"
+            baish_debug "Provider restored from state: ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+            return 0
+        fi
+        baish_debug "State provider '${BAISH_STATE_PROVIDER}' not available, falling back"
+    fi
+
+    # Default to mock provider for testing
+    if [[ -n "${BAISH_DISCOVERED_PROVIDERS[mock]+_}" ]]; then
+        BAISH_CURRENT_PROVIDER="mock"
+        local models
+        models=$(provider_mock_list_models)
+        BAISH_CURRENT_MODEL=$(echo "${models}" | jq -r '.[0].id')
+        baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+        baish_debug "Defaulted to mock provider"
+        return 0
+    fi
+
+    baish_print_error "No providers available"
+    exit 1
+}
+
+baish_select_provider
+
+baish_print_banner
+baish_print_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_MODEL}"
+
+# Main interactive loop
+baish_main_loop() {
+    while (( ! BAISH_SESSION_EXIT_REQUESTED )); do
+        local user_input
+        baish_print_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+        
+        if ! read -e -r user_input; then
+            # EOF (Ctrl+D)
+            printf "\n"
+            break
+        fi
+
+        # Trim whitespace
+        user_input=$(echo "${user_input}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [[ -z "${user_input}" ]] && continue
+
+        # Handle slash commands
+        if [[ "${user_input}" == /* ]]; then
+            case "${user_input}" in
+                /quit|/exit)
+                    BAISH_SESSION_EXIT_REQUESTED=1
+                    ;;
+                /new)
+                    baish_session_reset_context_window
+                    baish_print_info "Conversation cleared."
+                    ;;
+                /help)
+                    baish_usage
+                    ;;
+                *)
+                    baish_print_error "Unknown command: ${user_input}"
+                    ;;
+            esac
+            continue
+        fi
+
+        # Run agent loop for user message
+        baish_agent_run_user_message "${user_input}"
+    done
+}
+
+baish_main_loop
+baish_print_info "Goodbye!"
