@@ -478,26 +478,26 @@ teardown() {
 # Thinking spinner
 # ============================================================
 
-@test "baish_print_thinking_bg produces spinner output to stderr" {
+@test "baish_output_thinking_bg produces spinner output to stderr" {
     # Run the spinner briefly and capture its output
     local output
     output=$(timeout 0.3 bash -c '
-        source "'"${BAISH_ROOT}"'/lib/agent/config.sh"
-        baish_print_thinking_bg
+        source "'"${BAISH_ROOT}"'/lib/agent/output.sh"
+        baish_output_thinking_bg
     ' 2>&1) || true
 
     # Should contain spinner characters or "thinking" text
     [[ "$output" == *"thinking"* ]]
 }
 
-@test "baish_print_thinking uses spinner chars from config" {
-    # Verify the function exists and accepts a PID argument
-    declare -F baish_print_thinking &>/dev/null
+@test "baish_output_thinking uses spinner chars from config" {
+    # Verify the function exists
+    declare -F baish_output_thinking &>/dev/null
 
-    # Verify the config has spinner characters defined in the run-loop
-    local run_loop_content
-    run_loop_content=$(cat "${BAISH_ROOT}/lib/agent/run-loop.sh")
-    [[ "$run_loop_content" == *"baish_print_thinking_bg"* ]]
+    # Verify that output.sh has the thinking_bg function
+    local output_content
+    output_content=$(cat "${BAISH_ROOT}/lib/agent/output.sh")
+    [[ "$output_content" == *"baish_output_thinking_bg"* ]]
 }
 
 # ============================================================

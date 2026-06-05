@@ -13,7 +13,7 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/state.sh"
     source "${BAISH_ROOT}/lib/tools/tools.sh"
-    source "${BAISH_ROOT}/lib/agent/display.sh"
+    source "${BAISH_ROOT}/lib/agent/output.sh"
     source "${BAISH_ROOT}/lib/agent/session.sh"
     source "${BAISH_ROOT}/lib/agent/skills.sh"
     source "${BAISH_ROOT}/lib/agent/commands.sh"
@@ -41,13 +41,13 @@ teardown() {
 
 @test "context overflow guidance mentions /new command" {
     local output
-    output=$(baish_print_context_overflow_help 2>&1)
+    output=$(baish_output_context_overflow_help 2>&1)
     [[ "${output}" == *"/new"* ]]
 }
 
 @test "context overflow guidance mentions context exceeded" {
     local output
-    output=$(baish_print_context_overflow_help 2>&1)
+    output=$(baish_output_context_overflow_help 2>&1)
     [[ "${output}" == *"context"* ]] || [[ "${output}" == *"exceeded"* ]]
 }
 
@@ -57,26 +57,26 @@ teardown() {
 
 @test "auth failure message includes provider name" {
     local output
-    output=$(baish_print_auth_failure "copilot" 2>&1)
+    output=$(baish_output_auth_failure "copilot" 2>&1)
     [[ "${output}" == *"copilot"* ]]
 }
 
 @test "auth failure message includes /connect guidance" {
     local output
-    output=$(baish_print_auth_failure "kilo" 2>&1)
+    output=$(baish_output_auth_failure "kilo" 2>&1)
     [[ "${output}" == *"/connect"* ]]
 }
 
 @test "auth failure message includes optional detail" {
     local output
-    output=$(baish_print_auth_failure "copilot" "Token has expired" 2>&1)
+    output=$(baish_output_auth_failure "copilot" "Token has expired" 2>&1)
     [[ "${output}" == *"Token has expired"* ]]
 }
 
 @test "auth failure output goes to stderr" {
     local stdout_output stderr_output
-    stdout_output=$(baish_print_auth_failure "mock" 2>/dev/null) || true
-    stderr_output=$(baish_print_auth_failure "mock" 2>&1 1>/dev/null) || true
+    stdout_output=$(baish_output_auth_failure "mock" 2>/dev/null) || true
+    stderr_output=$(baish_output_auth_failure "mock" 2>&1 1>/dev/null) || true
     [[ -z "${stdout_output}" ]]
     [[ -n "${stderr_output}" ]]
 }

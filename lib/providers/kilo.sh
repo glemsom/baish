@@ -62,18 +62,18 @@ provider_kilo_auth() {
     fi
 
     # Prompt for API key
-    baish_print_info "Enter your Kilo Gateway API key:"
+    baish_output_info "Enter your Kilo Gateway API key:"
     local api_key
     api_key=$(gum input --placeholder "sk-..." 2>/dev/null || read -r -s -p "API Key: " api_key && echo "${api_key}")
 
     if [[ -z "${api_key}" ]]; then
-        baish_print_error "No API key provided"
+        baish_output_error "No API key provided"
         return 1
     fi
 
     # Validate the key
     if ! _kilo_validate_key "${api_key}"; then
-        baish_print_error "Invalid Kilo API key. Please check and try again."
+        baish_output_error "Invalid Kilo API key. Please check and try again."
         return 1
     fi
 
@@ -88,7 +88,7 @@ provider_kilo_auth() {
             "provider": "kilo"
         }' > "${auth_file}"
 
-    baish_print_info "✓ Kilo Gateway authentication successful!"
+    baish_output_info "✓ Kilo Gateway authentication successful!"
     return 0
 }
 

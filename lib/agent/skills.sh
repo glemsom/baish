@@ -14,7 +14,7 @@ baish_skill_load() {
     local skills_root="${2:-}"
 
     if [[ -z "${skill_name}" ]]; then
-        baish_print_error "Skill name is required"
+        baish_output_error "Skill name is required"
         return 1
     fi
 
@@ -32,7 +32,7 @@ baish_skill_load() {
     skill_file=$(baish_skill_resolve "${skill_name}" "${skills_root}")
 
     if [[ -z "${skill_file}" || ! -f "${skill_file}" ]]; then
-        baish_print_error "Skill '${skill_name}' not found (checked project-local and user-global)"
+        baish_output_error "Skill '${skill_name}' not found (checked project-local and user-global)"
         return 1
     fi
 

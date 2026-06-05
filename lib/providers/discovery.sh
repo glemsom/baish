@@ -44,7 +44,7 @@ baish_discover_providers() {
 
         # Check for ID collision — if metadata fn already existed before sourcing, error
         if echo "${before_funcs}" | grep -q "^provider_${provider_id}_metadata$"; then
-            baish_print_error "Provider ID collision: '${provider_id}' is already registered. Cannot load duplicate provider."
+            baish_output_error "Provider ID collision: '${provider_id}' is already registered. Cannot load duplicate provider."
             exit 1
         fi
 
@@ -58,7 +58,7 @@ baish_discover_providers() {
         local func
         for func in "${required_funcs[@]}"; do
             if ! declare -F "${func}" &>/dev/null; then
-                baish_print_error "Provider '${provider_id}' missing required function: ${func}"
+                baish_output_error "Provider '${provider_id}' missing required function: ${func}"
                 # Unregister partial provider
                 return 1
             fi
@@ -78,7 +78,7 @@ baish_provider_metadata() {
     local provider_id="$1"
     local metadata_fn="provider_${provider_id}_metadata"
     if ! declare -F "${metadata_fn}" &>/dev/null; then
-        baish_print_error "Unknown provider: ${provider_id}"
+        baish_output_error "Unknown provider: ${provider_id}"
         return 1
     fi
     "${metadata_fn}"
@@ -107,7 +107,7 @@ baish_provider_select_interactive() {
     done
 
     if (( ${#selectable_providers[@]} == 0 )); then
-        baish_print_error "No selectable providers available"
+        baish_output_error "No selectable providers available"
         return 1
     fi
 
@@ -127,7 +127,7 @@ baish_provider_select_interactive() {
             --no-multi)
 
         if [[ -z "${picked_label}" ]]; then
-            baish_print_error "No provider selected"
+            baish_output_error "No provider selected"
             return 1
         fi
 
@@ -149,7 +149,7 @@ baish_provider_select_interactive() {
 baish_model_select_interactive() {
     local list_models_fn="provider_${BAISH_CURRENT_PROVIDER}_list_models"
     if ! declare -F "${list_models_fn}" &>/dev/null; then
-        baish_print_error "Provider ${BAISH_CURRENT_PROVIDER} has no list_models function"
+        baish_output_error "Provider ${BAISH_CURRENT_PROVIDER} has no list_models function"
         return 1
     fi
 
@@ -159,7 +159,7 @@ baish_model_select_interactive() {
     model_count=$(echo "${models_json}" | jq 'length')
 
     if (( model_count == 0 )); then
-        baish_print_error "No models available for provider ${BAISH_CURRENT_PROVIDER}"
+        baish_output_error "No models available for provider ${BAISH_CURRENT_PROVIDER}"
         return 1
     fi
 
@@ -211,7 +211,7 @@ baish_model_select_interactive() {
     fi
 
     if [[ -z "${picked_model_id}" ]]; then
-        baish_print_error "No model selected"
+        baish_output_error "No model selected"
         return 1
     fi
 
@@ -229,7 +229,7 @@ baish_provider_chat() {
     local chat_fn="provider_${BAISH_CURRENT_PROVIDER}_chat"
 
     if ! declare -F "${chat_fn}" &>/dev/null; then
-        baish_print_error "Provider ${BAISH_CURRENT_PROVIDER} has no chat function"
+        baish_output_error "Provider ${BAISH_CURRENT_PROVIDER} has no chat function"
         return 1
     fi
 
@@ -251,7 +251,7 @@ baish_provider_has_env_auth() {
 baish_provider_auth() {
     local auth_fn="provider_${BAISH_CURRENT_PROVIDER}_auth"
     if ! declare -F "${auth_fn}" &>/dev/null; then
-        baish_print_error "Provider ${BAISH_CURRENT_PROVIDER} has no auth function"
+        baish_output_error "Provider ${BAISH_CURRENT_PROVIDER} has no auth function"
         return 1
     fi
 

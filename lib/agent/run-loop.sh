@@ -3,7 +3,7 @@
 
 source "${BASH_SOURCE%/*}/config.sh"
 source "${BASH_SOURCE%/*}/session.sh"
-source "${BASH_SOURCE%/*}/display.sh"
+source "${BASH_SOURCE%/*}/output.sh"
 source "${BASH_SOURCE%/*}/errors.sh"
 
 # Run the agent loop for a single user message
@@ -18,12 +18,12 @@ baish_agent_run_user_message() {
     while true; do
         # Check limits
         if (( BAISH_SESSION_TOOL_ROUNDS >= BAISH_MAX_TOOL_ROUNDS )); then
-            baish_print_info "Max tool rounds reached (${BAISH_MAX_TOOL_ROUNDS}). Stopping."
+            baish_output_info "Max tool rounds reached (${BAISH_MAX_TOOL_ROUNDS}). Stopping."
             break
         fi
 
         if (( BAISH_SESSION_TOTAL_TOOL_CALLS >= BAISH_MAX_TOOL_CALLS )); then
-            baish_print_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
+            baish_output_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
             break
         fi
 
@@ -44,7 +44,7 @@ baish_agent_run_user_message() {
             baish_debug_state "processing" "error" "provider infra exit code ${exit_code}"
             local stderr_content
             stderr_content=$(cat "${stderr_file}" 2>/dev/null || echo "")
-            baish_print_error "Provider ${BAISH_CURRENT_PROVIDER} infrastructure failure: ${stderr_content}"
+            baish_output_error "Provider ${BAISH_CURRENT_PROVIDER} infrastructure failure: ${stderr_content}"
             break
         fi
 
@@ -70,7 +70,7 @@ baish_agent_run_user_message() {
         # Display assistant text (only on first round)
         if (( BAISH_SESSION_TOOL_ROUNDS == 0 )); then
             if [[ -n "${assistant_text}" ]]; then
-                baish_print_assistant_response "${assistant_text}"
+                baish_output_assistant_response "${assistant_text}"
             fi
         fi
 
@@ -89,7 +89,7 @@ baish_agent_run_user_message() {
         local tc_idx
         for (( tc_idx = 0; tc_idx < tool_count; tc_idx++ )); do
             if (( BAISH_SESSION_TOTAL_TOOL_CALLS >= BAISH_MAX_TOOL_CALLS )); then
-                baish_print_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
+                baish_output_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
                 break 2
             fi
 
@@ -113,27 +113,18 @@ baish_agent_run_user_message() {
             local ok status_msg err_msg
             ok=$(echo "${result_json}" | jq -r '.ok')
             if [[ "${ok}" == "true" ]]; then
-                local tool_icon
-                case "${tool_name}" in
-                    read) tool_icon="${BAISH_ICON_READ}" ;;
-                    write) tool_icon="${BAISH_ICON_WRITE}" ;;
-                    edit) tool_icon="${BAISH_ICON_EDIT}" ;;
-                    bash) tool_icon="${BAISH_ICON_BASH}" ;;
-                    *) tool_icon="🔧" ;;
-                esac
                 if [[ "${tool_name}" == "bash" ]]; then
                     local bash_stdout bash_stderr bash_exit_code
                     bash_stdout=$(echo "${result_json}" | jq -r '.data.stdout // ""')
                     bash_stderr=$(echo "${result_json}" | jq -r '.data.stderr // ""')
                     bash_exit_code=$(echo "${result_json}" | jq -r '.data.exit_code // 0')
-                    baish_print_bash_output "${tool_icon}" "${bash_stdout}" "${bash_stderr}" "${bash_exit_code}"
+                    baish_output_bash_output "${tool_name}" "${bash_stdout}" "${bash_stderr}" "${bash_exit_code}"
                 else
-                    status_msg="${tool_name}: completed"
-                    baish_print_tool_result "${tool_icon}" "${status_msg}"
+                    baish_output_tool_result "${tool_name}" "completed"
                 fi
             else
                 err_msg=$(echo "${result_json}" | jq -r '.error.message')
-                baish_print_tool_result "❌" "${tool_name}: ${err_msg}"
+                baish_output_tool_error "${tool_name}" "${err_msg}"
             fi
 
             # Log debug summary (after ok/err_msg are set)
@@ -171,7 +162,7 @@ baish_agent_provider_chat_capture() {
     # Show thinking spinner in background (only if stderr is a terminal)
     local spinner_pid=""
     if [[ -t 2 ]]; then
-        baish_print_thinking_bg &
+        baish_output_thinking_bg &
         spinner_pid=$!
     fi
 
@@ -198,13 +189,3 @@ baish_agent_provider_chat_capture() {
     return 0
 }
 
-# Background spinner function (prints to stderr so it doesn't pollute stdout)
-baish_print_thinking_bg() {
-    local chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    local i=0
-    while true; do
-        printf "\r${BAISH_COLOR_CYAN}  %s thinking...${BAISH_COLOR_RESET}" "${chars[$i]}" >&2
-        i=$(( (i + 1) % ${#chars[@]} ))
-        sleep 0.1
-    done
-}

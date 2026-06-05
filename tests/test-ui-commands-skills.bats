@@ -22,7 +22,7 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/state.sh"
     source "${BAISH_ROOT}/lib/tools/tools.sh"
-    source "${BAISH_ROOT}/lib/agent/display.sh"
+    source "${BAISH_ROOT}/lib/agent/output.sh"
     source "${BAISH_ROOT}/lib/agent/session.sh"
     source "${BAISH_ROOT}/lib/agent/skills.sh"
     source "${BAISH_ROOT}/lib/agent/commands.sh"

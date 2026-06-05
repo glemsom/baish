@@ -40,7 +40,7 @@ BAISH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${BAISH_ROOT}/lib/agent/config.sh"
 source "${BAISH_ROOT}/lib/state.sh"
 source "${BAISH_ROOT}/lib/tools/tools.sh"
-source "${BAISH_ROOT}/lib/agent/display.sh"
+source "${BAISH_ROOT}/lib/agent/output.sh"
 source "${BAISH_ROOT}/lib/agent/session.sh"
 source "${BAISH_ROOT}/lib/agent/skills.sh"
 source "${BAISH_ROOT}/lib/agent/commands.sh"
@@ -57,7 +57,7 @@ fi
 
 # Validate launch directory
 if [[ ! -d "${BAISH_LAUNCH_DIR}" ]]; then
-    baish_print_error "Directory not found: ${BAISH_LAUNCH_DIR}"
+    baish_output_error "Directory not found: ${BAISH_LAUNCH_DIR}"
     exit 1
 fi
 cd "${BAISH_LAUNCH_DIR}" || exit 1
@@ -151,27 +151,27 @@ baish_startup() {
                 return 0
             fi
         done
-        baish_print_error "No providers available"
+        baish_output_error "No providers available"
         exit 1
     fi
 
     # Show provider picker
     baish_provider_select_interactive
     if [[ -z "${BAISH_CURRENT_PROVIDER}" ]]; then
-        baish_print_error "No provider selected"
+        baish_output_error "No provider selected"
         exit 1
     fi
 
     # Authenticate
     if ! baish_provider_auth; then
-        baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+        baish_output_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
         exit 1
     fi
 
     # Select model
     baish_model_select_interactive
     if [[ -z "${BAISH_CURRENT_MODEL}" ]]; then
-        baish_print_error "No model selected"
+        baish_output_error "No model selected"
         exit 1
     fi
 
@@ -181,14 +181,14 @@ baish_startup() {
 
 baish_startup
 
-baish_print_banner
-baish_print_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_MODEL}"
+baish_output_banner
+baish_output_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_MODEL}"
 
 # Main interactive loop
 baish_main_loop() {
     while (( ! BAISH_SESSION_EXIT_REQUESTED )); do
         local user_input
-        baish_print_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+        baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
 
         if ! user_input=$(baish_read_input); then
             # EOF (Ctrl+D)
@@ -233,7 +233,7 @@ baish_read_input() {
     while [[ "${result}" == *\\ ]]; do
         # Remove trailing backslash
         result="${result%\\}"
-        baish_print_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+        baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
         if ! read -e -r line; then
             return 1
         fi
@@ -246,4 +246,4 @@ ${line}"
 }
 
 baish_main_loop
-baish_print_info "Goodbye!"
+baish_output_info "Goodbye!"

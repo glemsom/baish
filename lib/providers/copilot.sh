@@ -42,8 +42,8 @@ provider_copilot_auth() {
     fi
 
     # OAuth device flow
-    baish_print_info "Authenticating with GitHub Copilot..."
-    baish_print_info "Starting device flow..."
+    baish_output_info "Authenticating with GitHub Copilot..."
+    baish_output_info "Starting device flow..."
 
     # Step 1: Get device and user codes
     local device_response
@@ -61,18 +61,18 @@ provider_copilot_auth() {
     interval=$(echo "${device_response}" | jq -r '.interval // 5')
 
     if [[ -z "${device_code}" || -z "${user_code}" ]]; then
-        baish_print_error "Failed to initiate Copilot device flow: ${device_response}"
+        baish_output_error "Failed to initiate Copilot device flow: ${device_response}"
         return 1
     fi
 
     # Step 2: Show user the verification URL and code
-    baish_print_info ""
-    baish_print_info "Open this URL in your browser:"
-    baish_print_info "  ${verification_uri}"
-    baish_print_info ""
-    baish_print_info "Enter this code: ${BAISH_COLOR_BOLD}${user_code}${BAISH_COLOR_RESET}"
-    baish_print_info ""
-    baish_print_info "Waiting for authorization..."
+    baish_output_info ""
+    baish_output_info "Open this URL in your browser:"
+    baish_output_info "  ${verification_uri}"
+    baish_output_info ""
+    baish_output_info "Enter this code: ${user_code}"
+    baish_output_info ""
+    baish_output_info "Waiting for authorization..."
 
     # Step 3: Poll for access token
     local start_time
@@ -82,7 +82,7 @@ provider_copilot_auth() {
     while true; do
         local elapsed=$(( $(date +%s) - start_time ))
         if (( elapsed >= expires_in )); then
-            baish_print_error "Device flow timed out. Please try again."
+            baish_output_error "Device flow timed out. Please try again."
             return 1
         fi
 
@@ -96,7 +96,7 @@ provider_copilot_auth() {
             "https://github.com/login/oauth/access_token" 2>/dev/null)
 
         if [[ -z "${poll_response}" ]]; then
-            baish_print_error "Empty response from GitHub OAuth endpoint"
+            baish_output_error "Empty response from GitHub OAuth endpoint"
             return 1
         fi
 
@@ -109,10 +109,10 @@ provider_copilot_auth() {
             interval=$(( interval + 5 ))
             continue
         elif [[ "${error_type}" == "expired_token" ]]; then
-            baish_print_error "Device code expired. Please try again."
+            baish_output_error "Device code expired. Please try again."
             return 1
         elif [[ "${error_type}" == "access_denied" ]]; then
-            baish_print_error "Authorization denied. Please try again."
+            baish_output_error "Authorization denied. Please try again."
             return 1
         fi
 
@@ -122,7 +122,7 @@ provider_copilot_auth() {
             break
         fi
 
-        baish_print_error "Unexpected response from GitHub: ${poll_response}"
+        baish_output_error "Unexpected response from GitHub: ${poll_response}"
         return 1
     done
 
@@ -137,7 +137,7 @@ provider_copilot_auth() {
             "provider": "github"
         }' > "${auth_file}"
 
-    baish_print_info "✓ Copilot authentication successful!"
+    baish_output_info "✓ Copilot authentication successful!"
     # Clear the runtime token so it will be refreshed on next chat
     BAISH_COPILOT_RUNTIME_TOKEN=""
     BAISH_COPILOT_RUNTIME_EXPIRY=0
@@ -161,7 +161,7 @@ _copilot_refresh_runtime_token() {
     github_token=$(_copilot_load_github_token)
 
     if [[ -z "${github_token}" ]]; then
-        baish_print_error "Copilot: No GitHub token found. Run /connect to authenticate."
+        baish_output_error "Copilot: No GitHub token found. Run /connect to authenticate."
         return 1
     fi
 
@@ -189,9 +189,9 @@ _copilot_refresh_runtime_token() {
 
     if [[ "${http_code}" != "200" ]]; then
         if [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
-            baish_print_error "Copilot: GitHub token is invalid or expired. Please re-authenticate with /connect."
+            baish_output_error "Copilot: GitHub token is invalid or expired. Please re-authenticate with /connect."
         else
-            baish_print_error "Copilot: Failed to refresh runtime token (HTTP ${http_code}): ${body}"
+            baish_output_error "Copilot: Failed to refresh runtime token (HTTP ${http_code}): ${body}"
         fi
         return 1
     fi
@@ -201,7 +201,7 @@ _copilot_refresh_runtime_token() {
     expires_at=$(echo "${body}" | jq -r '.expires_at // 0')
 
     if [[ -z "${BAISH_COPILOT_RUNTIME_TOKEN}" || "${BAISH_COPILOT_RUNTIME_TOKEN}" == "null" ]]; then
-        baish_print_error "Copilot: Failed to extract runtime token from response"
+        baish_output_error "Copilot: Failed to extract runtime token from response"
         return 1
     fi
 
