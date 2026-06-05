@@ -31,6 +31,8 @@ setup() {
     source "${BAISH_ROOT}/lib/providers/discovery.sh"
     source "${BAISH_ROOT}/lib/providers/chat-parser.sh"
     source "${BAISH_ROOT}/lib/providers/opencodego.sh"
+    source "${BAISH_ROOT}/lib/agent/errors.sh"
+    source "${BAISH_ROOT}/lib/agent/run-loop.sh"
 }
 
 teardown() {
@@ -1005,4 +1007,461 @@ teardown() {
     error_code=$(echo "${result}" | jq -r '.error.code')
     [[ "${ok}" == "false" ]]
     [[ "${error_code}" == "AUTH_FAILURE" ]]
+}
+
+# ============================================================
+# Integration: OpenCode Go via agent loop (issue #24)
+# ============================================================
+
+@test "agent loop works with kimi model via OpenAI path" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_kimi_integration() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-o" && "${args[$((i+1))]}" == "/dev/null" ]]; then
+                printf '200'
+                return
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "Hello from kimi via agent loop", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_kimi_integration "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Hello kimi"
+
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 2 ]]
+
+    local assistant_msg content
+    assistant_msg="${BAISH_SESSION_MESSAGES[1]}"
+    content=$(echo "${assistant_msg}" | jq -r '.content')
+    [[ "${content}" == "Hello from kimi via agent loop" ]]
+}
+
+@test "agent loop sends correct deepseek model in payload" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="deepseek-v3"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    local payload_file="${BAISH_STATE_DIR}/integration_payload.json"
+
+    _mock_curl_deepseek_integration() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-o" && "${args[$((i+1))]}" == "/dev/null" ]]; then
+                printf '200'
+                return
+            fi
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "ok", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_deepseek_integration "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Test deepseek"
+
+    local model_in_payload
+    model_in_payload=$(jq -r '.model' "${payload_file}")
+    [[ "${model_in_payload}" == "deepseek-v3" ]]
+}
+
+@test "agent loop works with minimax model via Anthropic path" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_minimax_integration() {
+        printf '{"id":"msg_001","type":"message","role":"assistant","content":[{"type":"text","text":"Hello from minimax via agent loop"}],"stop_reason":"end_turn"}\n200'
+    }
+
+    curl() { _mock_curl_minimax_integration "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Hello minimax"
+
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 2 ]]
+
+    local assistant_msg content
+    assistant_msg="${BAISH_SESSION_MESSAGES[1]}"
+    content=$(echo "${assistant_msg}" | jq -r '.content')
+    [[ "${content}" == "Hello from minimax via agent loop" ]]
+}
+
+@test "agent loop works with qwen model — correct Anthropic headers sent" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="qwen3-coder"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    local auth_header_file="${BAISH_STATE_DIR}/qwen_auth.txt"
+    local version_header_file="${BAISH_STATE_DIR}/qwen_version.txt"
+    local endpoint_file="${BAISH_STATE_DIR}/qwen_endpoint.txt"
+
+    _mock_curl_qwen_integration() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-H" ]]; then
+                local header="${args[$((i+1))]}"
+                if [[ "${header}" == x-api-key:* ]]; then
+                    echo "${header}" > "${auth_header_file}"
+                fi
+                if [[ "${header}" == anthropic-version:* ]]; then
+                    echo "${header}" > "${version_header_file}"
+                fi
+            fi
+        done
+        echo "${args[$(( ${#args[@]} - 1 ))]}" > "${endpoint_file}"
+        printf '{"id":"msg_qwen_001","type":"message","role":"assistant","content":[{"type":"text","text":"Hello from qwen"}],"stop_reason":"end_turn"}\n200'
+    }
+
+    curl() { _mock_curl_qwen_integration "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Hello qwen"
+
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 2 ]]
+
+    local assistant_msg content
+    assistant_msg="${BAISH_SESSION_MESSAGES[1]}"
+    content=$(echo "${assistant_msg}" | jq -r '.content')
+    [[ "${content}" == "Hello from qwen" ]]
+
+    local auth_header
+    auth_header=$(cat "${auth_header_file}")
+    [[ "${auth_header}" == "x-api-key: ocg-valid" ]]
+
+    local version_header
+    version_header=$(cat "${version_header_file}")
+    [[ "${version_header}" == "anthropic-version: 2023-06-01" ]]
+
+    local endpoint
+    endpoint=$(cat "${endpoint_file}")
+    [[ "${endpoint}" == */messages ]]
+}
+
+@test "agent loop tool call round-trip works for OpenAI-compatible models" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    # Create a test file to read
+    local test_file="${BAISH_LAUNCH_DIR}/tool_read_test.txt"
+    echo "Hello from tool test file" > "${test_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    local response_body
+    response_body=$(jq -n --arg path "${test_file}" '{
+        choices: [{
+            message: {
+                content: "I will read the file.",
+                tool_calls: [{
+                    id: "tc-read-1",
+                    function: {
+                        name: "read",
+                        arguments: ("{\"path\": \"" + $path + "\"}")
+                    }
+                }]
+            }
+        }]
+    }')
+
+    _mock_curl_tool_read() {
+        printf '%s\n200' "${response_body}"
+    }
+
+    curl() { _mock_curl_tool_read "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Read the test file"
+
+    # Should have at least 3 messages: user, assistant, tool_result
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 3 ]]
+
+    # Verify tool result message exists with role=tool
+    local tool_msg role
+    tool_msg="${BAISH_SESSION_MESSAGES[2]}"
+    role=$(echo "${tool_msg}" | jq -r '.role')
+    [[ "${role}" == "tool" ]]
+
+    # Verify tool result contains success status
+    local tool_content
+    tool_content=$(echo "${tool_msg}" | jq -r '.content')
+    local result_ok
+    result_ok=$(echo "${tool_content}" | jq -r '.ok')
+    [[ "${result_ok}" == "true" ]]
+}
+
+@test "agent loop tool call round-trip works for Anthropic models" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    # Create a test file to read
+    local test_file="${BAISH_LAUNCH_DIR}/anthropic_tool_test.txt"
+    echo "Hello from anthropic tool test" > "${test_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    local response_body
+    response_body=$(jq -n --arg path "${test_file}" '{
+        id: "msg_tool_ant_001",
+        type: "message",
+        role: "assistant",
+        content: [{
+            type: "tool_use",
+            id: "toolu_ant_001",
+            name: "read",
+            input: {path: $path}
+        }],
+        stop_reason: "tool_use"
+    }')
+
+    _mock_curl_anthropic_tool() {
+        printf '%s\n200' "${response_body}"
+    }
+
+    curl() { _mock_curl_anthropic_tool "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Read the file via anthropic"
+
+    # Should have at least 3 messages: user, assistant, tool_result
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 3 ]]
+
+    # Verify tool result message exists with role=tool
+    local tool_msg role
+    tool_msg="${BAISH_SESSION_MESSAGES[2]}"
+    role=$(echo "${tool_msg}" | jq -r '.role')
+    [[ "${role}" == "tool" ]]
+
+    # Verify tool result contains success status
+    local tool_content
+    tool_content=$(echo "${tool_msg}" | jq -r '.content')
+    local result_ok
+    result_ok=$(echo "${tool_content}" | jq -r '.ok')
+    [[ "${result_ok}" == "true" ]]
+}
+
+@test "agent loop propagates AUTH_FAILURE from OpenAI endpoint" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-bad", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_openai_auth_fail() {
+        printf '{"error": {"message": "Invalid API key"}}\n401'
+    }
+
+    curl() { _mock_curl_openai_auth_fail "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "trigger auth error"
+
+    # The user message should still be in session (appended before error)
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 1 ]]
+
+    # No assistant response should be appended (error prevented it)
+    local last_role
+    last_role=$(echo "${BAISH_SESSION_MESSAGES[-1]}" | jq -r '.role')
+    [[ "${last_role}" == "user" ]]
+}
+
+@test "agent loop propagates AUTH_FAILURE from Anthropic endpoint" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-bad", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_anthropic_auth_fail() {
+        printf '{"error": {"type": "authentication_error", "message": "invalid x-api-key"}}\n403'
+    }
+
+    curl() { _mock_curl_anthropic_auth_fail "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "trigger anthropic auth error"
+
+    # The user message should still be in session
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 1 ]]
+
+    # No assistant response should be appended
+    local last_role
+    last_role=$(echo "${BAISH_SESSION_MESSAGES[-1]}" | jq -r '.role')
+    [[ "${last_role}" == "user" ]]
+}
+
+@test "agent loop detects CONTEXT_OVERFLOW from OpenAI endpoint" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_openai_overflow() {
+        printf '{"error": {"message": "context_length_exceeded: input is too long"}}\n400'
+    }
+
+    curl() { _mock_curl_openai_overflow "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "overflow trigger"
+
+    # User message appended but no assistant
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 1 ]]
+    local last_role
+    last_role=$(echo "${BAISH_SESSION_MESSAGES[-1]}" | jq -r '.role')
+    [[ "${last_role}" == "user" ]]
+}
+
+@test "agent loop detects CONTEXT_OVERFLOW from Anthropic endpoint" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_anthropic_overflow() {
+        printf '{"error": {"type": "invalid_request_error", "message": "context_length_exceeded: prompt is too long"}}\n400'
+    }
+
+    curl() { _mock_curl_anthropic_overflow "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "anthropic overflow"
+
+    # User message appended but no assistant
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 1 ]]
+    local last_role
+    last_role=$(echo "${BAISH_SESSION_MESSAGES[-1]}" | jq -r '.role')
+    [[ "${last_role}" == "user" ]]
+}
+
+@test "agent loop session contains both user and assistant messages after round" {
+    local auth_file="${BAISH_AUTH_DIR}/opencodego.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"api_key": "ocg-valid", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "opencodego"}' \
+        > "${auth_file}"
+
+    BAISH_CURRENT_PROVIDER="opencodego"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+    BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
+
+    _mock_curl_session_integrity() {
+        printf '{"choices": [{"message": {"content": "Session test response", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_session_integrity "$@"; }
+    export -f curl
+
+    baish_agent_run_user_message "Session integrity test"
+
+    # Verify both user and assistant messages are present
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -eq 2 ]]
+
+    local user_role assistant_role user_content assistant_content
+    user_role=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq -r '.role')
+    user_content=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq -r '.content')
+    assistant_role=$(echo "${BAISH_SESSION_MESSAGES[1]}" | jq -r '.role')
+    assistant_content=$(echo "${BAISH_SESSION_MESSAGES[1]}" | jq -r '.content')
+
+    [[ "${user_role}" == "user" ]]
+    [[ "${user_content}" == "Session integrity test" ]]
+    [[ "${assistant_role}" == "assistant" ]]
+    [[ "${assistant_content}" == "Session test response" ]]
 }
