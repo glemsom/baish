@@ -682,3 +682,327 @@ teardown() {
     [[ "${ok}" == "false" ]]
     [[ "${error_code}" == "AUTH_FAILURE" ]]
 }
+
+# Chat — Anthropic-format path (issue #23)
+@test "opencodego chat with minimax model returns text from Anthropic /messages response" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    local payload_file="${BAISH_STATE_DIR}/anthropic_payload.json"
+    local endpoint_file="${BAISH_STATE_DIR}/anthropic_endpoint.txt"
+    local auth_header_file="${BAISH_STATE_DIR}/anthropic_auth.txt"
+    local version_header_file="${BAISH_STATE_DIR}/anthropic_version.txt"
+    local response_body
+    response_body=$(jq -n '{
+        id: "msg_test_001",
+        type: "message",
+        role: "assistant",
+        content: [{type: "text", text: "Hello from minimax via Anthropic API"}],
+        stop_reason: "end_turn"
+    }')
+    _mock_curl_anthropic_basic() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+            fi
+            if [[ "${args[$i]}" == "-H" ]]; then
+                local header="${args[$((i+1))]}"
+                if [[ "${header}" == x-api-key:* ]]; then
+                    echo "${header}" > "${auth_header_file}"
+                fi
+                if [[ "${header}" == anthropic-version:* ]]; then
+                    echo "${header}" > "${version_header_file}"
+                fi
+            fi
+        done
+        # Capture the URL (last positional arg)
+        echo "${args[$(( ${#args[@]} - 1 ))]}" > "${endpoint_file}"
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_anthropic_basic "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    # Verify result shape
+    local ok text tc_len
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    [[ "${ok}" == "true" ]]
+    [[ "${text}" == "Hello from minimax via Anthropic API" ]]
+    [[ "${tc_len}" == "0" ]]
+    # Verify routing to /messages endpoint
+    local endpoint
+    endpoint=$(cat "${endpoint_file}")
+    [[ "${endpoint}" == */messages ]]
+    # Verify headers
+    local auth_header
+    auth_header=$(cat "${auth_header_file}")
+    [[ "${auth_header}" == "x-api-key: ocg-test-key" ]]
+    local version_header
+    version_header=$(cat "${version_header_file}")
+    [[ "${version_header}" == "anthropic-version: 2023-06-01" ]]
+}
+
+@test "opencodego chat with qwen model routes to /messages endpoint" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="qwen3-coder"
+    local endpoint_file="${BAISH_STATE_DIR}/qwen_endpoint.txt"
+    local response_body
+    response_body=$(jq -n '{
+        id: "msg_qwen_001",
+        type: "message",
+        role: "assistant",
+        content: [{type: "text", text: "Hello from qwen"}],
+        stop_reason: "end_turn"
+    }')
+    _mock_curl_qwen() {
+        local args=("$@")
+        echo "${args[$(( ${#args[@]} - 1 ))]}" > "${endpoint_file}"
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_qwen "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    [[ "${ok}" == "true" ]]
+    [[ "${text}" == "Hello from qwen" ]]
+    # Verify it went to /messages
+    local endpoint
+    endpoint=$(cat "${endpoint_file}")
+    [[ "${endpoint}" == */messages ]]
+}
+
+@test "opencodego chat with minimax model parses tool_use blocks to internal format" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    local response_body
+    response_body=$(jq -n '{
+        id: "msg_tool_001",
+        type: "message",
+        role: "assistant",
+        content: [{
+            type: "tool_use",
+            id: "toolu_anthropic_001",
+            name: "read",
+            input: {path: "test.txt"}
+        }],
+        stop_reason: "tool_use"
+    }')
+    _mock_curl_tool_use() {
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_tool_use "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok tc_len tc_id tc_name tc_args
+    ok=$(echo "${result}" | jq -r '.ok')
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    tc_id=$(echo "${result}" | jq -r '.tool_calls[0].id')
+    tc_name=$(echo "${result}" | jq -r '.tool_calls[0].name')
+    tc_args=$(echo "${result}" | jq -r '.tool_calls[0].arguments')
+    [[ "${ok}" == "true" ]]
+    [[ "${tc_len}" == "1" ]]
+    [[ "${tc_id}" == "toolu_anthropic_001" ]]
+    [[ "${tc_name}" == "read" ]]
+    # arguments should be a JSON string of the input object
+    local parsed_path
+    parsed_path=$(echo "${tc_args}" | jq -r '.path')
+    [[ "${parsed_path}" == "test.txt" ]]
+}
+
+@test "opencodego chat with qwen model ignores thinking blocks in response" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="qwen3-coder"
+    local response_body
+    response_body=$(jq -n '{
+        id: "msg_think_001",
+        type: "message",
+        role: "assistant",
+        content: [
+            {type: "thinking", thinking: "Let me analyze this..."},
+            {type: "text", text: "Here is the result"},
+            {type: "thinking", thinking: "Double-checking..."}
+        ],
+        stop_reason: "end_turn"
+    }')
+    _mock_curl_thinking() {
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_thinking "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok text tc_len
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    [[ "${ok}" == "true" ]]
+    # Thinking content should not appear in assistant_text
+    [[ "${text}" == "Here is the result" ]]
+    [[ "${tc_len}" == "0" ]]
+}
+
+@test "opencodego chat with minimax model handles mixed text and tool_use response" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    local response_body
+    response_body=$(jq -n '{
+        id: "msg_mixed_001",
+        type: "message",
+        role: "assistant",
+        content: [
+            {type: "text", text: "I will read the file."},
+            {type: "tool_use", id: "toolu_mixed_1", name: "read", input: {path: "/etc/hosts"}},
+            {type: "text", text: " Done."}
+        ],
+        stop_reason: "tool_use"
+    }')
+    _mock_curl_mixed() {
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_mixed "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok text tc_len tc_name tc_args
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    tc_name=$(echo "${result}" | jq -r '.tool_calls[0].name')
+    tc_args=$(echo "${result}" | jq -r '.tool_calls[0].arguments')
+    [[ "${ok}" == "true" ]]
+    # All text blocks concatenated
+    [[ "${text}" == "I will read the file. Done." ]]
+    [[ "${tc_len}" == "1" ]]
+    [[ "${tc_name}" == "read" ]]
+    local parsed_path
+    parsed_path=$(echo "${tc_args}" | jq -r '.path')
+    [[ "${parsed_path}" == "/etc/hosts" ]]
+}
+
+@test "opencodego anthropic chat places system messages in top-level system field" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    local payload_file="${BAISH_STATE_DIR}/system_payload.json"
+    local messages_json='[
+        {"role": "system", "content": "You are a helpful coding assistant."},
+        {"role": "user", "content": "Hello"}
+    ]'
+    local response_body
+    response_body=$(jq -n '{
+        content: [{type: "text", text: "Hi there!"}],
+        stop_reason: "end_turn"
+    }')
+    _mock_curl_system() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+            fi
+        done
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_system "$@"; }
+    export -f curl
+    provider_opencodego_chat "${messages_json}" '[]' > /dev/null
+    # Verify system field exists at top level
+    local has_system
+    has_system=$(jq 'has("system")' "${payload_file}")
+    [[ "${has_system}" == "true" ]]
+    local system_content
+    system_content=$(jq -r '.system' "${payload_file}")
+    [[ "${system_content}" == "You are a helpful coding assistant." ]]
+    # Verify system message is NOT in messages array
+    local msg_roles
+    msg_roles=$(jq -r '[.messages[].role] | join(",")' "${payload_file}")
+    [[ "${msg_roles}" != *"system"* ]]
+}
+
+@test "opencodego anthropic chat translates tools to {name, description, input_schema}" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    local payload_file="${BAISH_STATE_DIR}/tools_anthropic_payload.json"
+    local tools_json='[{
+        "type": "function",
+        "function": {
+            "name": "read",
+            "description": "Read a file from the filesystem",
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+        }
+    }]'
+    local response_body
+    response_body=$(jq -n '{
+        content: [{type: "text", text: "OK"}],
+        stop_reason: "end_turn"
+    }')
+    _mock_curl_tools_translate() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+            fi
+        done
+        printf '%s\n200' "${response_body}"
+    }
+    curl() { _mock_curl_tools_translate "$@"; }
+    export -f curl
+    provider_opencodego_chat '[]' "${tools_json}" > /dev/null
+    # Verify Anthropic tool format
+    local has_tools
+    has_tools=$(jq 'has("tools")' "${payload_file}")
+    [[ "${has_tools}" == "true" ]]
+    local tool_name tool_desc has_input_schema
+    tool_name=$(jq -r '.tools[0].name' "${payload_file}")
+    tool_desc=$(jq -r '.tools[0].description' "${payload_file}")
+    has_input_schema=$(jq '.tools[0] | has("input_schema")' "${payload_file}")
+    [[ "${tool_name}" == "read" ]]
+    [[ "${tool_desc}" == "Read a file from the filesystem" ]]
+    [[ "${has_input_schema}" == "true" ]]
+    # input_schema should contain the parameters object
+    local schema_type schema_path_type
+    schema_type=$(jq -r '.tools[0].input_schema.type' "${payload_file}")
+    schema_path_type=$(jq -r '.tools[0].input_schema.properties.path.type' "${payload_file}")
+    [[ "${schema_type}" == "object" ]]
+    [[ "${schema_path_type}" == "string" ]]
+    # Verify no OpenAI-format fields present
+    local has_fn
+    has_fn=$(jq '.tools[0] | has("function")' "${payload_file}")
+    [[ "${has_fn}" == "false" ]]
+}
+
+@test "opencodego anthropic chat returns AUTH_FAILURE on 403 from /messages" {
+    export OPENCODEGO_API_KEY="ocg-bad-key"
+    BAISH_CURRENT_MODEL="minimax-m2.5"
+    _mock_curl_auth_error() {
+        printf '{"error": {"type": "authentication_error", "message": "invalid x-api-key"}}\n403'
+    }
+    curl() { _mock_curl_auth_error "$@"; }
+    export -f curl
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+}
+
+@test "opencodego anthropic chat returns AUTH_FAILURE when no API key configured" {
+    unset OPENCODEGO_API_KEY 2>/dev/null || true
+    BAISH_CURRENT_MODEL="qwen3-coder"
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+}

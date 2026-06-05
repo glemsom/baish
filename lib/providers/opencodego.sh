@@ -191,8 +191,7 @@ provider_opencodego_chat() {
 
     # Route based on model prefix: minimax-* and qwen* use Anthropic path
     if [[ "${model}" == minimax-* || "${model}" == qwen* ]]; then
-        # Anthropic path not yet implemented (#23)
-        jq -n '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": "OpenCodeGo: Anthropic path not yet implemented."}}'
+        _opencodego_chat_anthropic "${messages_json}" "${tools_json}" "${api_key}" "${model}"
         return 0
     fi
 
@@ -243,4 +242,185 @@ _opencodego_chat_openai() {
 
     # Delegate successful response parsing to shared parser
     baish_provider_parse_chat_response_body "${body}"
+}
+
+# Anthropic-format chat via /messages endpoint.
+# Translates BAISH internal OpenAI-format to Anthropic Messages API format
+# and translates Anthropic response back to BAISH format.
+_opencodego_chat_anthropic() {
+    local messages_json="$1"
+    local tools_json="$2"
+    local api_key="$3"
+    local model="$4"
+
+    # Build Anthropic Messages payload
+    local payload
+    payload=$(_opencodego_build_anthropic_payload "${model}" "${messages_json}" "${tools_json}")
+
+    baish_debug "OpenCodeGo: sending Anthropic chat request (model: ${model})"
+    baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/messages" "" "sending request"
+
+    local response
+    response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 120 \
+        -X POST \
+        -H "x-api-key: ${api_key}" \
+        -H "anthropic-version: 2023-06-01" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -d "${payload}" \
+        "${OPENCODEGO_BASE_URL}/messages" 2>/dev/null)
+
+    local http_code body
+    http_code=$(echo "${response}" | tail -1)
+    body=$(echo "${response}" | sed '$d')
+
+    baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/messages" "${http_code}"
+
+    # Handle errors
+    if [[ "${http_code}" != "200" ]]; then
+        _opencodego_parse_anthropic_error "${http_code}" "${body}"
+        return 0
+    fi
+
+    # Parse successful Anthropic response
+    _opencodego_parse_anthropic_response "${body}"
+}
+
+# Build an Anthropic Messages API payload from BAISH internal format.
+_opencodego_build_anthropic_payload() {
+    local model="$1"
+    local messages_json="$2"
+    local tools_json="$3"
+
+    # Extract system messages and user/assistant messages
+    local system_text
+    system_text=$(echo "${messages_json}" | jq -j '
+        [.[] | select(.role == "system") | .content] |
+        if length > 0 then join("\n") else empty end
+    ' 2>/dev/null)
+
+    # Filter out system messages for the messages array
+    local non_system_messages
+    non_system_messages=$(echo "${messages_json}" | jq -c '[.[] | select(.role != "system")]' 2>/dev/null)
+
+    # Translate tools from OpenAI format to Anthropic format
+    local anthropic_tools
+    if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
+        anthropic_tools=$(echo "${tools_json}" | jq -c '[.[] | {
+            name: .function.name,
+            description: (.function.description // ""),
+            input_schema: .function.parameters
+        }]' 2>/dev/null)
+    fi
+
+    # Build the payload
+    if [[ -n "${system_text}" ]]; then
+        if [[ -n "${anthropic_tools}" && "${anthropic_tools}" != "[]" ]]; then
+            jq -n \
+                --arg model "${model}" \
+                --arg system "${system_text}" \
+                --argjson messages "${non_system_messages}" \
+                --argjson tools "${anthropic_tools}" \
+                '{
+                    model: $model,
+                    system: $system,
+                    messages: $messages,
+                    tools: $tools,
+                    max_tokens: 4096
+                }'
+        else
+            jq -n \
+                --arg model "${model}" \
+                --arg system "${system_text}" \
+                --argjson messages "${non_system_messages}" \
+                '{
+                    model: $model,
+                    system: $system,
+                    messages: $messages,
+                    max_tokens: 4096
+                }'
+        fi
+    else
+        if [[ -n "${anthropic_tools}" && "${anthropic_tools}" != "[]" ]]; then
+            jq -n \
+                --arg model "${model}" \
+                --argjson messages "${non_system_messages}" \
+                --argjson tools "${anthropic_tools}" \
+                '{
+                    model: $model,
+                    messages: $messages,
+                    tools: $tools,
+                    max_tokens: 4096
+                }'
+        else
+            jq -n \
+                --arg model "${model}" \
+                --argjson messages "${non_system_messages}" \
+                '{
+                    model: $model,
+                    messages: $messages,
+                    max_tokens: 4096
+                }'
+        fi
+    fi
+}
+
+# Parse a successful Anthropic Messages API response.
+# Translates content blocks to BAISH internal format.
+_opencodego_parse_anthropic_response() {
+    local body="$1"
+
+    # Extract and concatenate text blocks
+    local assistant_text
+    assistant_text=$(echo "${body}" | jq -j '
+        [.content[]? | select(.type == "text") | .text] |
+        if length > 0 then join("") else "" end
+    ' 2>/dev/null)
+
+    # Extract tool_use blocks and translate to internal format
+    local tool_calls
+    tool_calls=$(echo "${body}" | jq -c '
+        [.content[]? | select(.type == "tool_use") | {
+            id: .id,
+            name: .name,
+            arguments: (.input | tostring)
+        }]
+    ' 2>/dev/null)
+
+    if [[ -z "${tool_calls}" || "${tool_calls}" == "null" ]]; then
+        tool_calls="[]"
+    fi
+
+    jq -n \
+        --arg text "${assistant_text}" \
+        --argjson tc "${tool_calls}" \
+        '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
+}
+
+# Parse an error response from the Anthropic Messages API.
+_opencodego_parse_anthropic_error() {
+    local http_code="$1"
+    local body="$2"
+
+    local error_msg
+    error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
+
+    # Context overflow detection
+    if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
+        jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
+        return 0
+    fi
+
+    # Auth failure (401 or 403)
+    if [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
+        jq -n --arg msg "${error_msg}" \
+            '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": $msg}}'
+        return 0
+    fi
+
+    # Generic error
+    local generic_msg="OpenCodeGo: Anthropic chat error (HTTP ${http_code}): ${error_msg}"
+    jq -n --arg msg "${generic_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
 }

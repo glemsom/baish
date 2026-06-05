@@ -102,6 +102,8 @@ _kilo_validate_key() {
     # 200 for valid keys. We use max_tokens=1 to minimise cost (must be >=1).
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 30 \
         -X POST \
         -H "Authorization: Bearer ${api_key}" \
         -H "Content-Type: application/json" \
@@ -130,6 +132,8 @@ provider_kilo_list_models() {
 
     local response
     response=$(curl -s \
+        --connect-timeout 10 \
+        --max-time 30 \
         -H "Authorization: Bearer ${api_key}" \
         -H "Accept: application/json" \
         "${KILO_GATEWAY_URL}/models" 2>/dev/null)
@@ -180,6 +184,8 @@ provider_kilo_chat() {
 
     local response
     response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 120 \
         -X POST \
         -H "Authorization: Bearer ${api_key}" \
         -H "Content-Type: application/json" \

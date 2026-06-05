@@ -6,7 +6,7 @@
 
 ## Core Concepts
 
-**Provider** — A pluggable LLM backend (e.g., GitHub Copilot, Kilo Gateway). Discovers via `lib/providers/*.sh` files. Each implements a standard interface: metadata, auth, list_models, chat, and optional has_env_auth.
+**Provider** — A pluggable LLM backend (e.g., GitHub Copilot, Kilo Gateway, OpenCode Go). Discovers via `lib/providers/*.sh` files. Each implements a standard interface: metadata, auth, list_models, chat, and optional has_env_auth.
 
 **Provider ID** — A unique string identifier for a provider (e.g., `copilot`, `kilo`). Collisions error loudly.
 

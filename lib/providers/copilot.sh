@@ -48,6 +48,8 @@ provider_copilot_auth() {
     # Step 1: Get device and user codes
     local device_response
     device_response=$(curl -s -X POST \
+        --connect-timeout 10 \
+        --max-time 30 \
         -H "Accept: application/json" \
         -H "Content-Type: application/json" \
         -d '{"client_id": "Iv1.b507608c826910e1","scope": "read:user"}' \
@@ -90,6 +92,8 @@ provider_copilot_auth() {
 
         local poll_response
         poll_response=$(curl -s -X POST \
+            --connect-timeout 10 \
+            --max-time 30 \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
             -d "{\"client_id\": \"Iv1.b507608c826910e1\",\"device_code\": \"${device_code}\",\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\"}" \
@@ -179,6 +183,8 @@ _copilot_refresh_runtime_token() {
     # Exchange GitHub token for Copilot runtime token
     local response
     response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 30 \
         -H "Authorization: token ${github_token}" \
         -H "Accept: application/json" \
         "https://api.github.com/copilot_internal/v2/token" 2>/dev/null)
@@ -306,6 +312,8 @@ _copilot_chat_single() {
         baish_debug "Copilot: sending to Responses API (model: ${model})"
 
         response=$(curl -s -w "\n%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 120 \
             -X POST \
             -H "Authorization: ${auth_header}" \
             -H "Content-Type: application/json" \
@@ -364,6 +372,8 @@ _copilot_chat_single() {
         baish_debug "Copilot: sending to Chat Completions API (model: ${model})"
 
         response=$(curl -s -w "\n%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 120 \
             -X POST \
             -H "Authorization: ${auth_header}" \
             -H "Content-Type: application/json" \
