@@ -99,13 +99,13 @@ _kilo_validate_key() {
     # Validate by sending a minimal request to the chat completions endpoint.
     # The models endpoint is public (always returns 200), so it cannot be used
     # for authentication. The chat endpoint returns 401 for invalid keys and
-    # 200 for valid keys. We use max_tokens=0 to minimise cost.
+    # 200 for valid keys. We use max_tokens=1 to minimise cost (must be >=1).
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
         -X POST \
         -H "Authorization: Bearer ${api_key}" \
         -H "Content-Type: application/json" \
-        -d '{"model":"kilo-auto/balanced","messages":[{"role":"user","content":"."}],"max_tokens":0}' \
+        -d '{"model":"kilo-auto/balanced","messages":[{"role":"user","content":"."}],"max_tokens":1}' \
         "${KILO_GATEWAY_URL}/chat/completions" 2>/dev/null)
 
     if [[ "${http_code}" == "200" ]]; then
