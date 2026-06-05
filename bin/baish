@@ -28,6 +28,7 @@ Slash commands:
   /connect           Authenticate current provider and pick a model
   /provider          Switch providers interactively
   /model             Switch models interactively
+  /skill:<name>      Load a skill into the session
 
 EOF
 }
@@ -41,8 +42,11 @@ source "${BAISH_ROOT}/lib/state.sh"
 source "${BAISH_ROOT}/lib/tools/tools.sh"
 source "${BAISH_ROOT}/lib/agent/display.sh"
 source "${BAISH_ROOT}/lib/agent/session.sh"
+source "${BAISH_ROOT}/lib/agent/skills.sh"
+source "${BAISH_ROOT}/lib/agent/commands.sh"
 source "${BAISH_ROOT}/lib/agent/run-loop.sh"
 source "${BAISH_ROOT}/lib/providers/discovery.sh"
+source "${BAISH_ROOT}/lib/ui/completion.sh"
 
 # Parse arguments
 BAISH_LAUNCH_DIR="${1:-$(pwd)}"
@@ -185,71 +189,60 @@ baish_main_loop() {
     while (( ! BAISH_SESSION_EXIT_REQUESTED )); do
         local user_input
         baish_print_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-        
-        if ! read -e -r user_input; then
+
+        if ! user_input=$(baish_read_input); then
             # EOF (Ctrl+D)
             printf "\n"
             break
         fi
 
-        # Trim whitespace
+        # Trim whitespace from each line and rejoin
         user_input=$(echo "${user_input}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
         [[ -z "${user_input}" ]] && continue
 
         # Handle slash commands
         if [[ "${user_input}" == /* ]]; then
-            case "${user_input}" in
-                /quit|/exit)
-                    BAISH_SESSION_EXIT_REQUESTED=1
-                    ;;
-                /new)
-                    baish_session_reset_context_window
-                    baish_print_info "Conversation cleared."
-                    ;;
-                /help)
-                    baish_usage
-                    ;;
-                /connect)
-                    if baish_provider_auth; then
-                        baish_print_info "Authenticated with ${BAISH_CURRENT_PROVIDER}."
-                        # Re-select model after auth
-                        if baish_model_select_interactive; then
-                            baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-                            baish_print_info "Model set to: ${BAISH_CURRENT_MODEL}"
-                        fi
-                    else
-                        baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
-                    fi
-                    ;;
-                /provider)
-                    baish_provider_select_interactive
-                    if [[ -n "${BAISH_CURRENT_PROVIDER}" ]]; then
-                        if baish_provider_auth; then
-                            baish_model_select_interactive
-                            baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-                            baish_print_info "Switched to ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
-                        else
-                            baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
-                        fi
-                    fi
-                    ;;
-                /model)
-                    baish_model_select_interactive
-                    if [[ -n "${BAISH_CURRENT_MODEL}" ]]; then
-                        baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-                        baish_print_info "Model set to: ${BAISH_CURRENT_MODEL}"
-                    fi
-                    ;;
-                *)
-                    baish_print_error "Unknown command: ${user_input}"
-                    ;;
-            esac
+            baish_dispatch_command "${user_input}"
             continue
         fi
 
         # Run agent loop for user message
         baish_agent_run_user_message "${user_input}"
     done
+}
+
+# Initialize readline completion
+baish_setup_completion
+
+# Bind Alt+Enter to insert backslash + newline for multiline continuation
+bind '"\e\r": "\\\n"' 2>/dev/null || true
+
+# Read input with Alt+Enter multiline support.
+# Alt+Enter inserts a backslash at end of line; we detect it and continue
+# reading until the user submits without a trailing backslash.
+baish_read_input() {
+    local result=""
+    local line
+
+    if ! read -e -r line; then
+        return 1
+    fi
+    result="${line}"
+
+    # Check for continuation (trailing backslash from Alt+Enter)
+    while [[ "${result}" == *\\ ]]; do
+        # Remove trailing backslash
+        result="${result%\\}"
+        baish_print_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+        if ! read -e -r line; then
+            return 1
+        fi
+        result="${result}
+${line}"
+    done
+
+    printf '%s' "${result}"
+    return 0
 }
 
 baish_main_loop
