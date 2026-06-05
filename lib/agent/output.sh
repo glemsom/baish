@@ -120,6 +120,55 @@ baish_output_bash_output() {
 }
 
 # ============================================================================
+# Extract a human-readable description from tool arguments JSON.
+# read/write/edit → path field, bash → command field, fallback → "?"
+# Descriptions over 100 characters are truncated with … suffix.
+_baish_output_tool_description() {
+    local tool_args="$1"
+    local desc
+    desc=$(echo "${tool_args}" | jq -r '.path // .command // "?"')
+    if (( ${#desc} > 100 )); then
+        desc="${desc:0:99}…"
+    fi
+    printf '%s' "${desc}"
+}
+
+# Tool announcement and result (replace-in-place)
+# ============================================================================
+
+# Announce a tool call before it executes (no trailing newline, uses \r so the
+# line can be overwritten by the success/error update).
+# Args: tool_name, description (path, command, etc.)
+baish_output_tool_announce() {
+    local tool_name="$1"
+    local description="$2"
+    local icon
+    icon=$(_baish_output_tool_icon "${tool_name}")
+    printf "\r${_BAISH_COLOR_DIM}  🔄 %s %s${_BAISH_COLOR_RESET}" "${icon}" "${description}"
+}
+
+# Update a tool announcement on success — overwrites the "🔄" line.
+# Args: tool_name, description
+baish_output_tool_announce_ok() {
+    local tool_name="$1"
+    local description="$2"
+    local icon
+    icon=$(_baish_output_tool_icon "${tool_name}")
+    printf "\r\033[K  ✅ %s %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}"
+}
+
+# Update a tool announcement on error — overwrites the "🔄" line.
+# Args: tool_name, description, error_message
+baish_output_tool_announce_error() {
+    local tool_name="$1"
+    local description="$2"
+    local error_msg="$3"
+    local icon
+    icon=$(_baish_output_tool_icon "${tool_name}")
+    printf "\r\033[K  ❌ %s %s — %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}" "${error_msg}"
+}
+
+# ============================================================================
 # Info and error messages
 # ============================================================================
 

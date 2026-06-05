@@ -102,6 +102,12 @@ baish_agent_run_user_message() {
 
             baish_debug_tool "${tool_name}" "id=${tool_id}"
 
+            # Build a human-readable description from the tool arguments
+            local tool_description
+            tool_description=$(_baish_output_tool_description "${tool_args}")
+            # Announce the tool call before execution (no newline — overwritten below)
+            baish_output_tool_announce "${tool_name}" "${tool_description}"
+
             # Execute the tool
             local result_json
             result_json=$(baish_tool_execute "${tool_name}" "${tool_args}")
@@ -109,22 +115,23 @@ baish_agent_run_user_message() {
             # Append tool result to session
             baish_session_append_tool_result "${tool_id}" "${result_json}"
 
-            # Display tool result summary
-            local ok status_msg err_msg
+            # Display tool result — overwrites the announcement line
+            local ok err_msg
             ok=$(echo "${result_json}" | jq -r '.ok')
             if [[ "${ok}" == "true" ]]; then
                 if [[ "${tool_name}" == "bash" ]]; then
+                    baish_output_tool_announce_ok "${tool_name}" "${tool_description}"
                     local bash_stdout bash_stderr bash_exit_code
                     bash_stdout=$(echo "${result_json}" | jq -r '.data.stdout // ""')
                     bash_stderr=$(echo "${result_json}" | jq -r '.data.stderr // ""')
                     bash_exit_code=$(echo "${result_json}" | jq -r '.data.exit_code // 0')
                     baish_output_bash_output "${tool_name}" "${bash_stdout}" "${bash_stderr}" "${bash_exit_code}"
                 else
-                    baish_output_tool_result "${tool_name}" "completed"
+                    baish_output_tool_announce_ok "${tool_name}" "${tool_description}"
                 fi
             else
                 err_msg=$(echo "${result_json}" | jq -r '.error.message')
-                baish_output_tool_error "${tool_name}" "${err_msg}"
+                baish_output_tool_announce_error "${tool_name}" "${tool_description}" "${err_msg}"
             fi
 
             # Log debug summary (after ok/err_msg are set)
@@ -172,11 +179,11 @@ baish_agent_provider_chat_capture() {
     result=$(${chat_fn} "${messages}" "${tools_json}" 2>"${stderr_file}")
     local exit_code=$?
 
-    # Kill spinner
+    # Kill spinner and clear the line completely
     if [[ -n "${spinner_pid}" ]]; then
         kill "${spinner_pid}" 2>/dev/null
         wait "${spinner_pid}" 2>/dev/null
-        printf "\r                              \r"
+        printf "\r\033[K" >&2
     fi
 
     if (( exit_code != 0 )); then
