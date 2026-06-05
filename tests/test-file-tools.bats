@@ -735,7 +735,7 @@ after" ]]
     # Verify the tool result message contains the file content
     local tool_msg content_field
     tool_msg="${BAISH_SESSION_MESSAGES[2]}"
-    content_field=$(echo "$tool_msg" | jq -r '.content.data.content')
+    content_field=$(echo "$tool_msg" | jq -r '.content | fromjson | .data.content')
 
     [[ "$content_field" == "readable content here" ]]
 }
@@ -798,7 +798,7 @@ after" ]]
 
     local tool_msg ok
     tool_msg="${BAISH_SESSION_MESSAGES[2]}"
-    ok=$(echo "$tool_msg" | jq -r '.content.ok')
+    ok=$(echo "$tool_msg" | jq -r '.content | fromjson | .ok')
 
     [[ "$ok" == "false" ]]
 }

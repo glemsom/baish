@@ -31,23 +31,52 @@ baish_session_append_user_message() {
     baish_debug "User message appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }
 
-# Append an assistant response to the session
+# Append an assistant response to the session.
+# Tool calls are normalized to OpenAI format (with function wrapper) so that
+# subsequent API requests pass validation. The provider response uses a
+# flattened internal format ({id, name, arguments}) which must be
+# converted back to the API format ({id, type: "function", function: {name, arguments}}).
 baish_session_append_assistant_response() {
     local text="$1"
     local tool_calls_json="$2"
+
+    # Normalize tool_calls to OpenAI format (idempotent — if already wrapped, pass through)
+    local normalized_tc
+    normalized_tc=$(echo "${tool_calls_json}" | jq -c '
+        if . == null or . == [] then []
+        else [.[] |
+            if has("function") then .
+            else {
+                "id": .id,
+                "type": "function",
+                "function": {
+                    "name": .name,
+                    "arguments": .arguments
+                }
+            } end
+        ] end
+    ')
+
     local msg
-    msg=$(jq -n --arg role "assistant" --arg content "${text}" --argjson tc "${tool_calls_json}" \
+    msg=$(jq -n --arg role "assistant" --arg content "${text}" --argjson tc "${normalized_tc}" \
         '{"role": $role, "content": $content, "tool_calls": $tc}')
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "Assistant response appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }
 
-# Append a tool result to the session
+# Append a tool result to the session.
+# The OpenAI API requires the content field to be a string, so we JSON-encode
+# the result object before storing it.
 baish_session_append_tool_result() {
     local tool_call_id="$1"
     local result_json="$2"
+
+    # Convert result JSON to a string (OpenAI API requires string content)
+    local content_str
+    content_str=$(echo "${result_json}" | jq -c '.')
+
     local msg
-    msg=$(jq -n --arg role "tool" --arg tool_call_id "${tool_call_id}" --argjson content "${result_json}" \
+    msg=$(jq -n --arg role "tool" --arg tool_call_id "${tool_call_id}" --arg content "${content_str}" \
         '{"role": $role, "tool_call_id": $tool_call_id, "content": $content}')
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "Tool result appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"

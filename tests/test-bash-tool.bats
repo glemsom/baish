@@ -422,7 +422,7 @@ teardown() {
     # Verify the tool result contains bash output
     local tool_msg stdout_field
     tool_msg="${BAISH_SESSION_MESSAGES[2]}"
-    stdout_field=$(echo "$tool_msg" | jq -r '.content.data.stdout')
+    stdout_field=$(echo "$tool_msg" | jq -r '.content | fromjson | .data.stdout')
 
     [[ "$stdout_field" == "hello from bash" ]]
 }
@@ -444,7 +444,7 @@ teardown() {
 
     local tool_msg ok
     tool_msg="${BAISH_SESSION_MESSAGES[2]}"
-    ok=$(echo "$tool_msg" | jq -r '.content.ok')
+    ok=$(echo "$tool_msg" | jq -r '.content | fromjson | .ok')
 
     [[ "$ok" == "false" ]]
 }
