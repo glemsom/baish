@@ -138,23 +138,18 @@ provider_kilo_list_models() {
     # Filter to chat-capable models and group by provider prefix
     # Kilo models use prefixed IDs like "anthropic/claude-sonnet-4.5"
     # We extract the prefix as the group and filter for models with "chat" features
+    # If no features field exists, include by default (OpenAI-compatible endpoints)
     echo "${models_raw}" | jq '
         [.[] | select(
-            # Filter: include models that have "chat" in their features/object/capabilities
-            # or if no features field, include by default (most OpenAI-compatible endpoints return all models)
-            (.features // []) | map(ascii_downcase) | index("chat")
-        ) // .[] | select(
-            # If no features field, check if the model object/chat suggests chat capability
-            (.object == "model" or .type == "model")
+            ((.features // []) | map(ascii_downcase) | index("chat")) != null
+            or ((.features // null) == null and (.object == "model" or .type == "model"))
         )] |
-        # Deduplicate and add group field
+        unique_by(.id) |
         [.[] | {
             "id": .id,
-            "name": .name // (.id | split("/") | last),
-            "group": (.id | split("/") | first // "other")
+            "name": (if .name then .name else (.id | split("/") | last) end),
+            "group": (if (.id | contains("/")) then (.id | split("/") | first) else "other" end)
         }] |
-        # Deduplicate by id
-        unique_by(.id) |
         sort_by(.group, .name)
     '
 }
