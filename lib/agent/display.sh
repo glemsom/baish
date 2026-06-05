@@ -41,6 +41,29 @@ baish_print_tool_result() {
     printf "${BAISH_COLOR_DIM}  %s %s${BAISH_COLOR_RESET}\n" "${icon}" "${summary}"
 }
 
+# Display bash tool output with colored formatting
+# Args: icon, stdout, stderr, exit_code
+baish_print_bash_output() {
+    local icon="$1"
+    local stdout_content="$2"
+    local stderr_content="$3"
+    local exit_code="$4"
+
+    if [[ -n "$stdout_content" ]]; then
+        printf "${BAISH_COLOR_DIM}  %s stdout:${BAISH_COLOR_RESET}\n" "${icon}"
+        printf "${BAISH_COLOR_GREEN}%s${BAISH_COLOR_RESET}\n" "$stdout_content"
+    fi
+
+    if [[ -n "$stderr_content" ]]; then
+        printf "${BAISH_COLOR_DIM}  %s stderr:${BAISH_COLOR_RESET}\n" "${icon}"
+        printf "${BAISH_COLOR_RED}%s${BAISH_COLOR_RESET}\n" "$stderr_content"
+    fi
+
+    if (( exit_code != 0 )); then
+        printf "${BAISH_COLOR_YELLOW}  %s exit code: %s${BAISH_COLOR_RESET}\n" "${icon}" "$exit_code"
+    fi
+}
+
 baish_print_error() {
     printf "${BAISH_COLOR_RED}Error: %s${BAISH_COLOR_RESET}\n" "$1" >&2
 }

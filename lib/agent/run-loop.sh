@@ -98,8 +98,16 @@ baish_agent_run_user_message() {
                     bash) tool_icon="${BAISH_ICON_BASH}" ;;
                     *) tool_icon="🔧" ;;
                 esac
-                status_msg="${tool_name}: completed"
-                baish_print_tool_result "${tool_icon}" "${status_msg}"
+                if [[ "${tool_name}" == "bash" ]]; then
+                    local bash_stdout bash_stderr bash_exit_code
+                    bash_stdout=$(echo "${result_json}" | jq -r '.data.stdout // ""')
+                    bash_stderr=$(echo "${result_json}" | jq -r '.data.stderr // ""')
+                    bash_exit_code=$(echo "${result_json}" | jq -r '.data.exit_code // 0')
+                    baish_print_bash_output "${tool_icon}" "${bash_stdout}" "${bash_stderr}" "${bash_exit_code}"
+                else
+                    status_msg="${tool_name}: completed"
+                    baish_print_tool_result "${tool_icon}" "${status_msg}"
+                fi
             else
                 local err_msg
                 err_msg=$(echo "${result_json}" | jq -r '.error.message')

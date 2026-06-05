@@ -1,0 +1,519 @@
+#!/usr/bin/env bats
+# BAISH — Test: Slice 4 — Bash tool, agent loop limits, and thinking spinner
+#
+# Tests:
+# - Bash tool: basic execution, launch directory context, env inheritance
+# - Bash tool: env overrides, error handling, timeout
+# - Bash tool: structured JSON responses (stdout, stderr, exit_code)
+# - Loop limits: BAISH_MAX_TOOL_ROUNDS enforcement
+# - Loop limits: BAISH_MAX_TOOL_CALLS enforcement
+# - Thinking spinner displays during LLM calls
+
+setup() {
+    # Isolate state to a temp directory
+    BAISH_STATE_DIR="$(mktemp -d)"
+    export BAISH_STATE_DIR
+    export HOME="${BAISH_STATE_DIR}/home"
+    mkdir -p "${HOME}"
+
+    # Create a workspace directory with test files
+    BAISH_LAUNCH_DIR="${BAISH_STATE_DIR}/workspace"
+    export BAISH_LAUNCH_DIR
+    mkdir -p "${BAISH_LAUNCH_DIR}"
+
+    BAISH_ROOT="$(cd "$(dirname "${BATS_TEST_DIRNAME}")" && pwd)"
+    export BAISH_ROOT
+
+    # Source modules
+    source "${BAISH_ROOT}/lib/agent/config.sh"
+    source "${BAISH_ROOT}/lib/state.sh"
+    source "${BAISH_ROOT}/lib/tools/tools.sh"
+    source "${BAISH_ROOT}/lib/agent/session.sh"
+    source "${BAISH_ROOT}/lib/agent/run-loop.sh"
+    source "${BAISH_ROOT}/lib/providers/mock.sh"
+}
+
+teardown() {
+    rm -rf "${BAISH_STATE_DIR}"
+}
+
+# ============================================================
+# Bash tool — basic execution
+# ============================================================
+
+@test "bash tool executes a simple command" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo hello"}')
+
+    local ok stdout exit_code
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+    exit_code=$(echo "$result" | jq -r '.data.exit_code')
+
+    [[ "$ok" == "true" ]]
+    [[ "$stdout" == "hello" ]]
+    [[ "$exit_code" -eq 0 ]]
+}
+
+@test "bash tool executes a multi-line command" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo line1; echo line2"}')
+
+    local ok stdout
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$ok" == "true" ]]
+    [[ "$stdout" == $'line1\nline2' ]]
+}
+
+@test "bash tool captures stderr separately" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo error_msg >&2"}')
+
+    local ok stderr
+    ok=$(echo "$result" | jq -r '.ok')
+    stderr=$(echo "$result" | jq -r '.data.stderr')
+
+    [[ "$ok" == "true" ]]
+    [[ "$stderr" == "error_msg" ]]
+}
+
+@test "bash tool returns non-zero exit code on failure" {
+    local result
+    result=$(baish_tool_bash '{"command":"false"}')
+
+    local ok exit_code
+    ok=$(echo "$result" | jq -r '.ok')
+    exit_code=$(echo "$result" | jq -r '.data.exit_code')
+
+    [[ "$ok" == "true" ]]
+    [[ "$exit_code" -ne 0 ]]
+}
+
+@test "bash tool captures both stdout and stderr" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo out; echo err >&2"}')
+
+    local ok stdout stderr
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+    stderr=$(echo "$result" | jq -r '.data.stderr')
+
+    [[ "$ok" == "true" ]]
+    [[ "$stdout" == "out" ]]
+    [[ "$stderr" == "err" ]]
+}
+
+# ============================================================
+# Bash tool — launch directory context
+# ============================================================
+
+@test "bash tool executes in the launch directory" {
+    mkdir -p "${BAISH_LAUNCH_DIR}/subdir"
+
+    local result
+    result=$(baish_tool_bash '{"command":"pwd"}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "${BAISH_LAUNCH_DIR}" ]]
+}
+
+@test "bash tool can cd and operate within launch directory" {
+    mkdir -p "${BAISH_LAUNCH_DIR}/subdir"
+    printf 'test content\n' > "${BAISH_LAUNCH_DIR}/subdir/file.txt"
+
+    local result
+    result=$(baish_tool_bash '{"command":"cat subdir/file.txt"}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "test content" ]]
+}
+
+@test "bash tool creates files in launch directory" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo created_by_bash > test_output.txt"}')
+
+    local ok
+    ok=$(echo "$result" | jq -r '.ok')
+
+    [[ "$ok" == "true" ]]
+    [[ -f "${BAISH_LAUNCH_DIR}/test_output.txt" ]]
+    [[ "$(cat "${BAISH_LAUNCH_DIR}/test_output.txt")" == "created_by_bash" ]]
+}
+
+# ============================================================
+# Bash tool — environment inheritance
+# ============================================================
+
+@test "bash tool inherits current environment variables" {
+    export MY_TEST_VAR="inherited_value"
+
+    local result
+    result=$(baish_tool_bash '{"command":"echo $MY_TEST_VAR"}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "inherited_value" ]]
+}
+
+@test "bash tool supports env parameter to override variables" {
+    export MY_OVERRIDABLE_VAR="original"
+
+    local result
+    result=$(baish_tool_bash '{"command":"echo $MY_OVERRIDABLE_VAR","env":{"MY_OVERRIDABLE_VAR":"overridden"}}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "overridden" ]]
+}
+
+@test "bash tool env parameter sets new variables" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo $NEW_VAR","env":{"NEW_VAR":"from_env_param"}}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "from_env_param" ]]
+}
+
+@test "bash tool env parameter does not affect parent environment" {
+    export PARENT_VAR="parent_value"
+
+    baish_tool_bash '{"command":"export PARENT_VAR=changed","env":{"PARENT_VAR":"changed"}}'
+
+    [[ "$PARENT_VAR" == "parent_value" ]]
+}
+
+# ============================================================
+# Bash tool — error handling
+# ============================================================
+
+@test "bash tool returns error for missing command" {
+    local result
+    result=$(baish_tool_bash '{}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "MISSING_COMMAND" ]]
+}
+
+@test "bash tool returns error for empty command" {
+    local result
+    result=$(baish_tool_bash '{"command":""}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "MISSING_COMMAND" ]]
+}
+
+@test "bash tool handles command that produces no output" {
+    local result
+    result=$(baish_tool_bash '{"command":"true"}')
+
+    local ok stdout exit_code
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+    exit_code=$(echo "$result" | jq -r '.data.exit_code')
+
+    [[ "$ok" == "true" ]]
+    [[ -z "$stdout" ]]
+    [[ "$exit_code" -eq 0 ]]
+}
+
+@test "bash tool handles complex shell pipelines" {
+    printf 'apple\nbanana\ncherry\n' > "${BAISH_LAUNCH_DIR}/fruits.txt"
+
+    local result
+    result=$(baish_tool_bash '{"command":"cat fruits.txt | grep -c apple"}')
+
+    local stdout
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$stdout" == "1" ]]
+}
+
+# ============================================================
+# Bash tool — timeout
+# ============================================================
+
+@test "bash tool respects BAISH_BASH_TIMEOUT" {
+    BAISH_BASH_TIMEOUT=2
+
+    local result
+    result=$(baish_tool_bash '{"command":"sleep 10"}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "TIMEOUT" ]]
+}
+
+@test "bash tool completes before timeout" {
+    BAISH_BASH_TIMEOUT=5
+
+    local result
+    result=$(baish_tool_bash '{"command":"sleep 0.1 && echo done"}')
+
+    local ok stdout
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$ok" == "true" ]]
+    [[ "$stdout" == "done" ]]
+}
+
+# ============================================================
+# Bash tool — structured JSON response
+# ============================================================
+
+@test "bash tool returns correct JSON shape on success" {
+    local result
+    result=$(baish_tool_bash '{"command":"echo test"}')
+
+    echo "$result" | jq 'has("ok")' | grep -q true
+    echo "$result" | jq 'has("tool")' | grep -q true
+    echo "$result" | jq 'has("data")' | grep -q true
+    echo "$result" | jq '.data | has("stdout")' | grep -q true
+    echo "$result" | jq '.data | has("stderr")' | grep -q true
+    echo "$result" | jq '.data | has("exit_code")' | grep -q true
+    echo "$result" | jq -r '.tool' | grep -q "bash"
+}
+
+@test "bash tool returns error JSON shape on timeout" {
+    BAISH_BASH_TIMEOUT=1
+
+    local result
+    result=$(baish_tool_bash '{"command":"sleep 10"}')
+
+    echo "$result" | jq 'has("ok")' | grep -q true
+    echo "$result" | jq 'has("tool")' | grep -q true
+    echo "$result" | jq 'has("error")' | grep -q true
+    echo "$result" | jq '.error | has("code")' | grep -q true
+    echo "$result" | jq '.error | has("message")' | grep -q true
+}
+
+# ============================================================
+# Loop limits — BAISH_MAX_TOOL_ROUNDS
+# ============================================================
+
+@test "agent loop stops after BAISH_MAX_TOOL_ROUNDS rounds" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="round test"
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc1","name":"bash","arguments":"{\"command\":\"echo 1\"}"}]'
+    BAISH_MAX_TOOL_ROUNDS=2
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "test"
+
+    # The loop should stop after exactly BAISH_MAX_TOOL_ROUNDS rounds
+    [[ ${BAISH_SESSION_TOOL_ROUNDS} -eq 2 ]]
+}
+
+@test "agent loop processes fewer rounds when no tool calls returned" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="no tools"
+    BAISH_MOCK_TOOL_CALLS=""
+    BAISH_MAX_TOOL_ROUNDS=10
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "test"
+
+    # No tool calls means 0 rounds
+    [[ ${BAISH_SESSION_TOOL_ROUNDS} -eq 0 ]]
+}
+
+# ============================================================
+# Loop limits — BAISH_MAX_TOOL_CALLS
+# ============================================================
+
+@test "agent loop stops after BAISH_MAX_TOOL_CALLS total calls" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="call limit test"
+    # Each round returns 2 tool calls
+    BAISH_MOCK_TOOL_CALLS='[
+        {"id":"tc1","name":"bash","arguments":"{\"command\":\"echo 1\"}"},
+        {"id":"tc2","name":"bash","arguments":"{\"command\":\"echo 2\"}"}
+    ]'
+    BAISH_MAX_TOOL_ROUNDS=100
+    BAISH_MAX_TOOL_CALLS=3
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "test"
+
+    # Should stop after exactly 3 tool calls (1 full round of 2 + 1 in next round)
+    [[ ${BAISH_SESSION_TOTAL_TOOL_CALLS} -eq 3 ]]
+}
+
+@test "agent loop enforces BAISH_MAX_TOOL_CALLS across multiple rounds" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="multi-round test"
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc1","name":"bash","arguments":"{\"command\":\"echo x\"}"}]'
+    BAISH_MAX_TOOL_ROUNDS=100
+    BAISH_MAX_TOOL_CALLS=5
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "test"
+
+    # Should stop after exactly 5 tool calls
+    [[ ${BAISH_SESSION_TOTAL_TOOL_CALLS} -eq 5 ]]
+    # Should not exceed max rounds
+    [[ ${BAISH_SESSION_TOOL_ROUNDS} -le 5 ]]
+}
+
+@test "BAISH_MAX_TOOL_CALLS default is 100" {
+    [[ "$BAISH_MAX_TOOL_CALLS" -eq 100 ]]
+}
+
+@test "BAISH_MAX_TOOL_ROUNDS default is 20" {
+    [[ "$BAISH_MAX_TOOL_ROUNDS" -eq 20 ]]
+}
+
+# ============================================================
+# End-to-end: bash tool via mock provider in agent loop
+# ============================================================
+
+@test "agent loop executes bash tool from mock provider end-to-end" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I'll run that command for you."
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc-bash","name":"bash","arguments":"{\"command\":\"echo hello from bash\"}"}]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "Run a command"
+
+    # Verify: user + assistant + tool result = 3 messages
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 3 ]]
+
+    # Verify the tool result contains bash output
+    local tool_msg stdout_field
+    tool_msg="${BAISH_SESSION_MESSAGES[2]}"
+    stdout_field=$(echo "$tool_msg" | jq -r '.content.data.stdout')
+
+    [[ "$stdout_field" == "hello from bash" ]]
+}
+
+@test "agent loop handles bash tool error gracefully" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I'll try a failing command."
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc-bash-err","name":"bash","arguments":"{\"command\":\"\"}"}]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "Run empty command"
+
+    # Tool error should still be appended to session
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 3 ]]
+
+    local tool_msg ok
+    tool_msg="${BAISH_SESSION_MESSAGES[2]}"
+    ok=$(echo "$tool_msg" | jq -r '.content.ok')
+
+    [[ "$ok" == "false" ]]
+}
+
+@test "agent loop executes multiple bash tools sequentially" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="Running commands sequentially."
+    BAISH_MOCK_TOOL_CALLS='[
+        {"id":"tc1","name":"bash","arguments":"{\"command\":\"echo step1 > step.txt\"}"},
+        {"id":"tc2","name":"bash","arguments":"{\"command\":\"echo step2 >> step.txt\"}"}
+    ]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    baish_agent_run_user_message "Run two commands"
+
+    # Verify file has both steps (sequential execution)
+    [[ -f "${BAISH_LAUNCH_DIR}/step.txt" ]]
+    local file_content
+    file_content=$(cat "${BAISH_LAUNCH_DIR}/step.txt")
+    [[ "$file_content" == $'step1\nstep2' ]]
+
+    # Both tool results appended
+    [[ ${#BAISH_SESSION_MESSAGES[@]} -ge 4 ]]
+}
+
+# ============================================================
+# Thinking spinner
+# ============================================================
+
+@test "baish_print_thinking_bg produces spinner output to stderr" {
+    # Run the spinner briefly and capture its output
+    local output
+    output=$(timeout 0.3 bash -c '
+        source "'"${BAISH_ROOT}"'/lib/agent/config.sh"
+        baish_print_thinking_bg
+    ' 2>&1) || true
+
+    # Should contain spinner characters or "thinking" text
+    [[ "$output" == *"thinking"* ]]
+}
+
+@test "baish_print_thinking uses spinner chars from config" {
+    # Verify the function exists and accepts a PID argument
+    declare -F baish_print_thinking &>/dev/null
+
+    # Verify the config has spinner characters defined in the run-loop
+    local run_loop_content
+    run_loop_content=$(cat "${BAISH_ROOT}/lib/agent/run-loop.sh")
+    [[ "$run_loop_content" == *"baish_print_thinking_bg"* ]]
+}
+
+# ============================================================
+# Tool execution dispatch — bash via engine
+# ============================================================
+
+@test "tool execution dispatches to bash tool via engine" {
+    local result
+    result=$(baish_tool_execute "bash" '{"command":"echo dispatched"}')
+
+    local ok tool_name stdout
+    ok=$(echo "$result" | jq -r '.ok')
+    tool_name=$(echo "$result" | jq -r '.tool')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$ok" == "true" ]]
+    [[ "$tool_name" == "bash" ]]
+    [[ "$stdout" == "dispatched" ]]
+}

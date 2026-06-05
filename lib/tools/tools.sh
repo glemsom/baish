@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # BAISH — File tools: read, write, edit
+# Bash execution tool
 # Each tool accepts standardized JSON arguments and returns structured JSON results.
 
 source "${BASH_SOURCE%/*}/engine.sh"
@@ -404,4 +405,116 @@ baish_tool_edit() {
         --arg path "$path" \
         --argjson changes "$edit_count" \
         '{"path": $path, "changes_count": $changes}')"
+}
+
+# ============================================================
+# Bash tool
+# ============================================================
+
+# Bash tool
+# Executes a shell command in the launch directory with inherited environment.
+# Arguments (JSON):
+#   command - shell command to execute (required)
+#   env     - optional object of env var overrides
+# Respects BAISH_BASH_TIMEOUT (default: 120s) to prevent runaway processes.
+# Commands execute automatically without confirmation.
+baish_tool_bash() {
+    local args_json="$1"
+    local command env_json
+
+    command=$(echo "$args_json" | jq -r '.command // empty')
+    if [[ -z "$command" ]]; then
+        baish_tool_error_json "bash" "MISSING_COMMAND" "The 'command' arg is required"
+        return 0
+    fi
+
+    # Extract optional env overrides
+    env_json=$(echo "$args_json" | jq -c '.env // {}')
+
+    # Build the execution environment: inherit current env, apply overrides
+    local launch_dir="${BAISH_LAUNCH_DIR:-$PWD}"
+
+    # Create a temporary script that sets env vars then runs the command
+    local tmpscript
+    tmpscript=$(mktemp "${launch_dir}/.baish_bash.XXXXXX.sh")
+
+    # Write env exports and command to the temp script
+    {
+        printf '#!/usr/bin/env bash\n'
+        # Change to the launch directory
+        printf 'cd %q\n' "$launch_dir"
+        # Apply env overrides
+        local env_keys
+        env_keys=$(echo "$env_json" | jq -r 'keys[]')
+        for key in $env_keys; do
+            local val
+            val=$(echo "$env_json" | jq -r ".[\"${key}\"]")
+            printf 'export %s=%q\n' "$key" "$val"
+        done
+        # Execute the command
+        printf '%s\n' "$command"
+    } > "$tmpscript"
+    chmod +x "$tmpscript"
+
+    # Capture stdout and stderr separately
+    local stdout_file stderr_file
+    stdout_file=$(mktemp "${launch_dir}/.baish_stdout.XXXXXX")
+    stderr_file=$(mktemp "${launch_dir}/.baish_stderr.XXXXXX")
+
+    local exit_code=0
+    local timed_out=false
+
+    # Run with timeout
+    if command -v timeout &>/dev/null; then
+        timeout --signal=KILL "${BAISH_BASH_TIMEOUT}" bash "$tmpscript" \
+            >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+        # timeout returns 137 (128+9) when it kills the process
+        if [[ "$exit_code" -eq 137 ]]; then
+            timed_out=true
+        fi
+    else
+        # Fallback: use bash background job + wait with timeout
+        bash "$tmpscript" >"$stdout_file" 2>"$stderr_file" &
+        local cmd_pid=$!
+        local waited=0
+        while kill -0 "$cmd_pid" 2>/dev/null; do
+            sleep 1
+            waited=$((waited + 1))
+            if (( waited >= BAISH_BASH_TIMEOUT )); then
+                kill -9 "$cmd_pid" 2>/dev/null
+                wait "$cmd_pid" 2>/dev/null
+                timed_out=true
+                exit_code=137
+                break
+            fi
+        done
+        if [[ "$timed_out" == "false" ]]; then
+            wait "$cmd_pid" 2>/dev/null
+            exit_code=$?
+        fi
+    fi
+
+    # Clean up temp script
+    rm -f "$tmpscript"
+
+    # Read output (truncate to avoid excessive JSON payloads)
+    local stdout_content stderr_content
+    local max_output_bytes=65536  # 64KB limit per stream
+
+    stdout_content=$(head -c "$max_output_bytes" "$stdout_file" 2>/dev/null || true)
+    stderr_content=$(head -c "$max_output_bytes" "$stderr_file" 2>/dev/null || true)
+
+    rm -f "$stdout_file" "$stderr_file"
+
+    # Build result JSON
+    if [[ "$timed_out" == "true" ]]; then
+        baish_tool_error_json "bash" "TIMEOUT" \
+            "Command timed out after ${BAISH_BASH_TIMEOUT}s. stdout: ${stdout_content} stderr: ${stderr_content}"
+    else
+        baish_tool_success_json "bash" "$(jq -n \
+            --arg stdout "$stdout_content" \
+            --arg stderr "$stderr_content" \
+            --argjson exit_code "$exit_code" \
+            '{"stdout": $stdout, "stderr": $stderr, "exit_code": $exit_code}')"
+    fi
 }
