@@ -463,7 +463,7 @@ API_BASE="https://copilot-api.{host-without-api-prefix}"
 
 ```bash
 #!/bin/bash
-set -euo pipefail
+set -o pipefail
 
 # Configuration
 GITHUB_HOST="${BAISH_COPILOT_HOST:-${COPILOT_GH_HOST:-${GH_HOST:-github.com}}}"

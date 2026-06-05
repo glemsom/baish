@@ -2,7 +2,7 @@
 # BAISH — Bash-first terminal AI coding agent
 # Usage: baish [directory]
 
-set -euo pipefail
+set -o pipefail
 
 BAISH_VERSION="0.1.0"
 

@@ -477,7 +477,7 @@ baish_tool_bash() {
         bash "$tmpscript" >"$stdout_file" 2>"$stderr_file" &
         local cmd_pid=$!
         local waited=0
-        while kill -0 "$cmd_pid" 2>/dev/null; do
+        while kill -0 "$cmd_pid" 2>/dev/null || true; do
             sleep 1
             waited=$((waited + 1))
             if (( waited >= BAISH_BASH_TIMEOUT )); then
@@ -501,8 +501,8 @@ baish_tool_bash() {
     local stdout_content stderr_content
     local max_output_bytes=65536  # 64KB limit per stream
 
-    stdout_content=$(head -c "$max_output_bytes" "$stdout_file" 2>/dev/null || true)
-    stderr_content=$(head -c "$max_output_bytes" "$stderr_file" 2>/dev/null || true)
+    stdout_content=$(head -c "$max_output_bytes" "$stdout_file" 2>/dev/null)
+    stderr_content=$(head -c "$max_output_bytes" "$stderr_file" 2>/dev/null)
 
     rm -f "$stdout_file" "$stderr_file"
 

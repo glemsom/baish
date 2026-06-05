@@ -249,7 +249,6 @@ assert_fn_exists() {
     local saved_github_token="${GITHUB_TOKEN:-}"
     unset GH_TOKEN GITHUB_TOKEN 2>/dev/null || true
 
-    # Capture return code inline (avoid set -e causing failure)
     local result=0
     provider_copilot_has_env_auth || result=$?
 

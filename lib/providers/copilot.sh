@@ -95,6 +95,11 @@ provider_copilot_auth() {
             -d "{\"client_id\": \"Iv1.b507608c826910e1\",\"device_code\": \"${device_code}\",\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\"}" \
             "https://github.com/login/oauth/access_token" 2>/dev/null)
 
+        if [[ -z "${poll_response}" ]]; then
+            baish_print_error "Empty response from GitHub OAuth endpoint"
+            return 1
+        fi
+
         local error_type
         error_type=$(echo "${poll_response}" | jq -r '.error // empty')
 
@@ -314,6 +319,11 @@ _copilot_chat_single() {
         http_code=$(echo "${response}" | tail -1)
         local body
         body=$(echo "${response}" | sed '$d')
+
+        if [[ -z "${body}" ]]; then
+            baish_print_error "Empty response from Copilot Responses API" >&2
+            return 1
+        fi
 
         if [[ "${http_code}" != "200" ]]; then
             local error_msg
