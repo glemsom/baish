@@ -2,7 +2,8 @@
 # BAISH — Kilo Gateway provider
 #
 # API key authentication with validation and persistence in ~/.baish/auth/kilo.json.
-# Model listing from /models endpoint, filtered to chat-capable models, grouped by provider prefix.
+# Model listing from /models endpoint, grouped by provider prefix.
+# The Kilo Gateway API returns only usable models, so no additional filtering is needed.
 # Full prefixed model IDs (e.g., anthropic/claude-sonnet-4.5) used as-is in API calls.
 
 KILO_GATEWAY_URL="${KILO_GATEWAY_URL:-https://api.kilo.ai/api/gateway}"
@@ -141,15 +142,10 @@ provider_kilo_list_models() {
         return 0
     fi
 
-    # Filter to chat-capable models and group by provider prefix
-    # Kilo models use prefixed IDs like "anthropic/claude-sonnet-4.5"
-    # We extract the prefix as the group and filter for models with "chat" features
-    # If no features field exists, include by default (OpenAI-compatible endpoints)
+    # Sort and format models from the API response.
+    # The Kilo Gateway /models endpoint already returns only usable models,
+    # so we pass all of them through without filtering.
     echo "${models_raw}" | jq '
-        [.[] | select(
-            ((.features // []) | map(ascii_downcase) | index("chat")) != null
-            or ((.features // null) == null and (.object == "model" or .type == "model"))
-        )] |
         unique_by(.id) |
         [.[] | {
             "id": .id,

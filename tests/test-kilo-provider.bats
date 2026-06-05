@@ -3,7 +3,7 @@
 #
 # Tests:
 # - API key auth validates against the gateway and persists the key
-# - Model listing returns only chat-capable models grouped by provider prefix
+# - Model listing returns all models from API, grouped by provider prefix
 # - Chat requests succeed and return normalized {assistant_text, tool_calls}
 # - Full prefixed model IDs (e.g., anthropic/claude-sonnet-4.5) work correctly
 # - Environment-based auth detection when KILO_API_KEY is set
@@ -181,18 +181,18 @@ _curl_get_count() {
     [[ "${count}" -eq 0 ]]
 }
 
-@test "kilo model listing fetches and returns chat-capable models" {
+@test "kilo model listing returns all models from API" {
     export KILO_API_KEY="sk-test-key"
 
-    # Mock response from Kilo Gateway /models endpoint
+    # Mock response matching real Kilo Gateway API format (no features/object fields)
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "anthropic/claude-sonnet-4-20250514", object: "model", features: ["chat", "vision"]},
-            {id: "openai/gpt-4o", object: "model", features: ["chat"]},
-            {id: "openai/text-embedding-3-small", object: "model", features: ["embeddings"]},
-            {id: "google/gemini-2.5-pro", object: "model", features: ["chat", "vision"]},
-            {id: "anthropic/claude-opus-4-20250514", object: "model", features: ["chat"]}
+            {id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4"},
+            {id: "openai/gpt-4o", name: "GPT-4o"},
+            {id: "openai/text-embedding-3-small", name: "Text Embedding 3 Small"},
+            {id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro"},
+            {id: "anthropic/claude-opus-4-20250514", name: "Claude Opus 4"}
         ]
     }')
 
@@ -206,15 +206,14 @@ _curl_get_count() {
     local models
     models=$(provider_kilo_list_models)
 
-    # Should filter out embeddings-only models
+    # All models from the API are returned (no filtering)
     local count
     count=$(echo "${models}" | jq 'length')
-    [[ "${count}" -eq 4 ]]
+    [[ "${count}" -eq 5 ]]
 
-    # All returned models should be chat-capable
     local ids
     ids=$(echo "${models}" | jq -r '[.[].id] | sort | join(",")')
-    [[ "${ids}" == "anthropic/claude-opus-4-20250514,anthropic/claude-sonnet-4-20250514,google/gemini-2.5-pro,openai/gpt-4o" ]]
+    [[ "${ids}" == "anthropic/claude-opus-4-20250514,anthropic/claude-sonnet-4-20250514,google/gemini-2.5-pro,openai/gpt-4o,openai/text-embedding-3-small" ]]
 }
 
 @test "kilo model listing groups models by provider prefix" {
@@ -223,9 +222,9 @@ _curl_get_count() {
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "openai/gpt-4o", object: "model", features: ["chat"]},
-            {id: "anthropic/claude-sonnet-4-20250514", object: "model", features: ["chat"]},
-            {id: "google/gemini-2.5-pro", object: "model", features: ["chat"]}
+            {id: "openai/gpt-4o", name: "GPT-4o"},
+            {id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4"},
+            {id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro"}
         ]
     }')
 
@@ -256,8 +255,8 @@ _curl_get_count() {
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "anthropic/claude-sonnet-4.5", object: "model", features: ["chat"]},
-            {id: "openai/gpt-4o-mini", object: "model", features: ["chat"]}
+            {id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5"},
+            {id: "openai/gpt-4o-mini", name: "GPT-4o Mini"}
         ]
     }')
 
@@ -286,7 +285,7 @@ _curl_get_count() {
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "anthropic/claude-sonnet-4-20250514", object: "model", features: ["chat"]}
+            {id: "anthropic/claude-sonnet-4-20250514", name: "Claude Sonnet 4"}
         ]
     }')
 
@@ -305,15 +304,15 @@ _curl_get_count() {
     [[ -n "${name}" ]]
 }
 
-@test "kilo model listing handles models without features field" {
+@test "kilo model listing handles models without extra fields" {
     export KILO_API_KEY="sk-test-key"
 
-    # Some API responses don't include a features field
+    # Models with minimal fields (only id) should still work
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "openai/gpt-4o", object: "model"},
-            {id: "anthropic/claude-sonnet-4-20250514", object: "model"}
+            {id: "openai/gpt-4o"},
+            {id: "anthropic/claude-sonnet-4-20250514"}
         ]
     }')
 
@@ -338,8 +337,8 @@ _curl_get_count() {
     local response_body
     response_body=$(jq -n '{
         data: [
-            {id: "openai/gpt-4o", object: "model", features: ["chat"]},
-            {id: "openai/gpt-4o", object: "model", features: ["chat"]}
+            {id: "openai/gpt-4o", name: "GPT-4o"},
+            {id: "openai/gpt-4o", name: "GPT-4o"}
         ]
     }')
 
