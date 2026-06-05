@@ -346,3 +346,339 @@ teardown() {
     # qwen3-coder-plus → Qwen3 Coder Plus
     [[ "${qwen_name}" == "Qwen3 Coder Plus" ]]
 }
+
+# ============================================================
+# Chat — OpenAI-compatible path (issue #22)
+# ============================================================
+
+@test "opencodego chat with kimi model returns normalized {ok, assistant_text, tool_calls} shape" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local response_body
+    response_body=$(jq -n '{
+        choices: [{
+            message: {
+                content: "Hello from kimi",
+                tool_calls: []
+            }
+        }]
+    }')
+
+    _mock_curl_chat_basic() {
+        printf '%s\n200' "${response_body}"
+    }
+
+    curl() { _mock_curl_chat_basic "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local has_ok has_text has_tc
+    has_ok=$(echo "${result}" | jq 'has("ok")')
+    has_text=$(echo "${result}" | jq 'has("assistant_text")')
+    has_tc=$(echo "${result}" | jq 'has("tool_calls")')
+
+    [[ "${has_ok}" == "true" ]]
+    [[ "${has_text}" == "true" ]]
+    [[ "${has_tc}" == "true" ]]
+
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    [[ "${ok}" == "true" ]]
+    [[ "${text}" == "Hello from kimi" ]]
+}
+
+@test "opencodego chat sends correct model in payload" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="deepseek-v3"
+
+    local payload_file="${BAISH_STATE_DIR}/payload.json"
+
+    _mock_curl_capture_payload() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "ok", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_capture_payload "$@"; }
+    export -f curl
+
+    provider_opencodego_chat '[]' '[]' > /dev/null
+
+    local model_in_payload
+    model_in_payload=$(jq -r '.model' "${payload_file}")
+    [[ "${model_in_payload}" == "deepseek-v3" ]]
+}
+
+@test "opencodego chat parses tool calls to internal format" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local response_body
+    response_body=$(jq -n '{
+        choices: [{
+            message: {
+                content: "I will read that file.",
+                tool_calls: [{
+                    id: "tc-ocg-1",
+                    function: {
+                        name: "read",
+                        arguments: "{\"path\":\"test.txt\"}"
+                    }
+                }]
+            }
+        }]
+    }')
+
+    _mock_curl_chat_tools() {
+        printf '%s\n200' "${response_body}"
+    }
+
+    curl() { _mock_curl_chat_tools "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local tc_len tc_name tc_id
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    tc_name=$(echo "${result}" | jq -r '.tool_calls[0].name')
+    tc_id=$(echo "${result}" | jq -r '.tool_calls[0].id')
+
+    [[ "${tc_len}" == "1" ]]
+    [[ "${tc_name}" == "read" ]]
+    [[ "${tc_id}" == "tc-ocg-1" ]]
+}
+
+@test "opencodego chat with no tool calls sets empty tool_calls array" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local response_body
+    response_body=$(jq -n '{
+        choices: [{
+            message: {
+                content: "Plain response",
+                tool_calls: []
+            }
+        }]
+    }')
+
+    _mock_curl_no_tools() {
+        printf '%s\n200' "${response_body}"
+    }
+
+    curl() { _mock_curl_no_tools "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local tc_len
+    tc_len=$(echo "${result}" | jq '.tool_calls | length')
+    [[ "${tc_len}" == "0" ]]
+}
+
+@test "opencodego chat forwards messages correctly in payload" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local payload_file="${BAISH_STATE_DIR}/messages_payload.json"
+    local messages_json='[{"role": "user", "content": "Hello, OpenCode!"}]'
+
+    _mock_curl_messages() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "Hello back!", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_messages "$@"; }
+    export -f curl
+
+    provider_opencodego_chat "${messages_json}" '[]' > /dev/null
+
+    local msg_content msg_role
+    msg_content=$(jq -r '.messages[0].content' "${payload_file}")
+    msg_role=$(jq -r '.messages[0].role' "${payload_file}")
+
+    [[ "${msg_content}" == "Hello, OpenCode!" ]]
+    [[ "${msg_role}" == "user" ]]
+}
+
+@test "opencodego chat includes tools in payload when provided" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local payload_file="${BAISH_STATE_DIR}/tools_payload.json"
+    local tools_json='[{"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}}]'
+
+    _mock_curl_tools() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "ok", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_tools "$@"; }
+    export -f curl
+
+    provider_opencodego_chat '[]' "${tools_json}" > /dev/null
+
+    local has_tools tools_name
+    has_tools=$(jq 'has("tools")' "${payload_file}")
+    tools_name=$(jq -r '.tools[0].function.name' "${payload_file}")
+
+    [[ "${has_tools}" == "true" ]]
+    [[ "${tools_name}" == "read" ]]
+}
+
+@test "opencodego chat omits tools from payload when not provided" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local payload_file="${BAISH_STATE_DIR}/notools_payload.json"
+
+    _mock_curl_no_tools_payload() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${payload_file}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "ok", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_no_tools_payload "$@"; }
+    export -f curl
+
+    provider_opencodego_chat '[]' '[]' > /dev/null
+
+    local has_tools
+    has_tools=$(jq 'has("tools")' "${payload_file}")
+    [[ "${has_tools}" == "false" ]]
+}
+
+@test "opencodego chat returns AUTH_FAILURE on 401 error" {
+    export OPENCODEGO_API_KEY="ocg-invalid-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    _mock_curl_401() {
+        printf '{"error": {"message": "Invalid API key"}}\n401'
+    }
+
+    curl() { _mock_curl_401 "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+}
+
+@test "opencodego chat returns AUTH_FAILURE on 403 error" {
+    export OPENCODEGO_API_KEY="ocg-forbidden-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    _mock_curl_403() {
+        printf '{"error": {"message": "Access denied"}}\n403'
+    }
+
+    curl() { _mock_curl_403 "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+}
+
+@test "opencodego chat detects context overflow from response" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    _mock_curl_overflow() {
+        printf '{"error": {"message": "context_length_exceeded: input is too long"}}\n400'
+    }
+
+    curl() { _mock_curl_overflow "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
+}
+
+@test "opencodego chat reports generic error on 500 server error" {
+    export OPENCODEGO_API_KEY="ocg-test-key"
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    _mock_curl_500() {
+        printf '{"error": {"message": "Internal server error"}}\n500'
+    }
+
+    curl() { _mock_curl_500 "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+}
+
+@test "opencodego chat returns AUTH_FAILURE when no API key configured" {
+    unset OPENCODEGO_API_KEY 2>/dev/null || true
+    BAISH_CURRENT_MODEL="kimi-k2.5"
+
+    local result
+    result=$(provider_opencodego_chat '[]' '[]')
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+}

@@ -173,8 +173,8 @@ provider_opencodego_list_models() {
 }
 
 # --- Chat ---
-# Full chat implementation is in issues #22 (OpenAI path) and #23 (Anthropic path).
-# This function provides the minimal stub required for provider discovery.
+# Two-tier routing: most models use OpenAI /chat/completions (#22),
+# minimax-* and qwen* use Anthropic /messages (#23).
 provider_opencodego_chat() {
     local messages_json="$1"
     local tools_json="$2"
@@ -187,7 +187,60 @@ provider_opencodego_chat() {
         return 0
     fi
 
-    # Chat not yet implemented — see issues #22 and #23
-    jq -n '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": "OpenCodeGo: Chat not yet implemented."}}'
-    return 0
+    local model="${BAISH_CURRENT_MODEL}"
+
+    # Route based on model prefix: minimax-* and qwen* use Anthropic path
+    if [[ "${model}" == minimax-* || "${model}" == qwen* ]]; then
+        # Anthropic path not yet implemented (#23)
+        jq -n '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": "OpenCodeGo: Anthropic path not yet implemented."}}'
+        return 0
+    fi
+
+    # OpenAI-compatible path: use chat-parser.sh shared utilities
+    _opencodego_chat_openai "${messages_json}" "${tools_json}" "${api_key}" "${model}"
+}
+
+# OpenAI-compatible chat via /chat/completions endpoint.
+# Follows same pattern as Kilo Gateway provider.
+_opencodego_chat_openai() {
+    local messages_json="$1"
+    local tools_json="$2"
+    local api_key="$3"
+    local model="$4"
+
+    # Build Chat Completions payload via shared parser
+    local payload
+    payload=$(baish_provider_build_chat_payload "${model}" "${messages_json}" "${tools_json}")
+
+    baish_debug "OpenCodeGo: sending chat request (model: ${model})"
+    baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/chat/completions" "" "sending request"
+
+    local response
+    response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 120 \
+        -X POST \
+        -H "Authorization: Bearer ${api_key}" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -d "${payload}" \
+        "${OPENCODEGO_BASE_URL}/chat/completions" 2>/dev/null)
+
+    local http_code body
+    http_code=$(echo "${response}" | tail -1)
+    body=$(echo "${response}" | sed '$d')
+
+    baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/chat/completions" "${http_code}"
+
+    # Delegate error detection to shared parser
+    local error_result
+    error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
+        '.error.message // .message // "Unknown error"' "AUTH_FAILURE" "OpenCodeGo: ")
+    if [[ -n "${error_result}" ]]; then
+        echo "${error_result}"
+        return 0
+    fi
+
+    # Delegate successful response parsing to shared parser
+    baish_provider_parse_chat_response_body "${body}"
 }
