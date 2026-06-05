@@ -5,7 +5,7 @@
 # Model listing from /models endpoint, filtered to chat-capable models, grouped by provider prefix.
 # Full prefixed model IDs (e.g., anthropic/claude-sonnet-4.5) used as-is in API calls.
 
-KILO_GATEWAY_URL="${KILO_GATEWAY_URL:-https://gateway.kilo.ai}"
+KILO_GATEWAY_URL="${KILO_GATEWAY_URL:-https://api.kilo.ai/api/gateway}"
 
 # --- Metadata ---
 provider_kilo_metadata() {
@@ -95,13 +95,19 @@ provider_kilo_auth() {
 _kilo_validate_key() {
     local api_key="$1"
 
+    # Validate by sending a minimal request to the chat completions endpoint.
+    # The models endpoint is public (always returns 200), so it cannot be used
+    # for authentication. The chat endpoint returns 401 for invalid keys and
+    # 200 for valid keys. We use max_tokens=0 to minimise cost.
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X POST \
         -H "Authorization: Bearer ${api_key}" \
-        "${KILO_GATEWAY_URL}/v1/models" 2>/dev/null)
+        -H "Content-Type: application/json" \
+        -d '{"model":"kilo-auto/balanced","messages":[{"role":"user","content":"."}],"max_tokens":0}' \
+        "${KILO_GATEWAY_URL}/chat/completions" 2>/dev/null)
 
-    if [[ "${http_code}" == "200" || "${http_code}" == "404" ]]; then
-        # 200 = valid, 404 = valid but no /models endpoint (still authenticated)
+    if [[ "${http_code}" == "200" ]]; then
         return 0
     fi
 
@@ -119,13 +125,13 @@ provider_kilo_list_models() {
         return 0
     fi
 
-    baish_debug "Kilo: fetching model list from ${KILO_GATEWAY_URL}/v1/models"
+    baish_debug "Kilo: fetching model list from ${KILO_GATEWAY_URL}/models"
 
     local response
     response=$(curl -s \
         -H "Authorization: Bearer ${api_key}" \
         -H "Accept: application/json" \
-        "${KILO_GATEWAY_URL}/v1/models" 2>/dev/null)
+        "${KILO_GATEWAY_URL}/models" 2>/dev/null)
 
     local models_raw
     models_raw=$(echo "${response}" | jq -c '.data // []' 2>/dev/null)
@@ -195,7 +201,7 @@ provider_kilo_chat() {
     fi
 
     baish_debug "Kilo: sending chat request (model: ${model})"
-    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/v1/chat/completions" "" "sending request"
+    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/chat/completions" "" "sending request"
 
     local response
     response=$(curl -s -w "\n%{http_code}" \
@@ -204,13 +210,13 @@ provider_kilo_chat() {
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
         -d "${payload}" \
-        "${KILO_GATEWAY_URL}/v1/chat/completions" 2>/dev/null)
+        "${KILO_GATEWAY_URL}/chat/completions" 2>/dev/null)
 
     local http_code body
     http_code=$(echo "${response}" | tail -1)
     body=$(echo "${response}" | sed '$d')
 
-    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/v1/chat/completions" "${http_code}"
+    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/chat/completions" "${http_code}"
 
     if [[ "${http_code}" != "200" ]]; then
         local error_msg

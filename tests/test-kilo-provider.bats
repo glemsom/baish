@@ -624,6 +624,15 @@ _curl_get_count() {
     BAISH_DEBUG=0
 
     _mock_curl_kilo_integration() {
+        local args=("$@")
+        # Check for validation call (-o /dev/null + -w "%{http_code}")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-o" && "${args[$((i+1))]}" == "/dev/null" ]]; then
+                printf '200'
+                return
+            fi
+        done
         printf '{"choices": [{"message": {"content": "Kilo agent loop works", "tool_calls": []}}]}\n200'
     }
 
@@ -664,6 +673,11 @@ _curl_get_count() {
         local args=("$@")
         local i
         for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-o" && "${args[$((i+1))]}" == "/dev/null" ]]; then
+                # Validation call — return just HTTP status
+                printf '200'
+                return
+            fi
             if [[ "${args[$i]}" == "-d" ]]; then
                 echo "${args[$((i+1))]}" > "${payload_file}"
                 break
@@ -723,14 +737,13 @@ _curl_get_count() {
 # API key validation
 # ============================================================
 
-@test "kilo validates API key against /v1/models endpoint" {
+@test "kilo validates API key against chat completions endpoint" {
     export KILO_API_KEY="sk-valid-key"
 
     echo 0 > "${CURL_CALL_COUNT_FILE}"
 
     _mock_curl_validate() {
         _curl_count
-        printf ''
         printf '200'
     }
 
