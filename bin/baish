@@ -22,9 +22,12 @@ Environment variables:
   BAISH_DEBUG             Enable debug logging: 0=off, 1=on (default: 0)
 
 Slash commands:
-  /help       Show this help
-  /quit, /exit  Exit the agent
-  /new        Clear conversation history
+  /help              Show this help
+  /quit, /exit       Exit the agent
+  /new               Clear conversation history
+  /connect           Authenticate current provider and pick a model
+  /provider          Switch providers interactively
+  /model             Switch models interactively
 
 EOF
 }
@@ -39,6 +42,7 @@ source "${BAISH_ROOT}/lib/tools/tools.sh"
 source "${BAISH_ROOT}/lib/agent/display.sh"
 source "${BAISH_ROOT}/lib/agent/session.sh"
 source "${BAISH_ROOT}/lib/agent/run-loop.sh"
+source "${BAISH_ROOT}/lib/providers/discovery.sh"
 
 # Parse arguments
 BAISH_LAUNCH_DIR="${1:-$(pwd)}"
@@ -59,99 +63,119 @@ baish_debug "BAISH v${BAISH_VERSION} starting in ${BAISH_LAUNCH_DIR}"
 # Initialize state directory
 baish_state_init
 
-# Discover and source providers
-declare -A BAISH_DISCOVERED_PROVIDERS=()
-BAISH_PROVIDER_IDS=()
+# Discover all providers
+baish_discover_providers
 
-baish_discover_providers() {
-    local providers_dir="${BAISH_ROOT}/lib/providers"
-    if [[ ! -d "${providers_dir}" ]]; then
-        baish_debug "No providers directory found"
-        return
-    fi
+# Startup: select provider and model
+baish_startup() {
+    # Try restoring from state
+    if baish_state_read; then
+        local state_provider="${BAISH_STATE_PROVIDER}"
+        local state_model="${BAISH_STATE_MODEL}"
 
-    local provider_file
-    for provider_file in "${providers_dir}"/*.sh; do
-        [[ -f "${provider_file}" ]] || continue
-
-        local filename
-        filename=$(basename "${provider_file}" .sh)
-
-        # Detect functions declared by sourcing the provider
-        local before_funcs after_funcs new_funcs
-        before_funcs=$(declare -F | awk '{print $3}')
-        source "${provider_file}"
-        after_funcs=$(declare -F | awk '{print $3}')
-        new_funcs=$(comm -13 <(echo "${before_funcs}") <(echo "${after_funcs}"))
-
-        # Extract provider ID from function names (provider_<id>_*)
-        local provider_id
-        provider_id=$(echo "${new_funcs}" | grep -oP '^provider_\K[^_]+' | head -1)
-
-        if [[ -z "${provider_id}" ]]; then
-            baish_debug "Could not extract provider ID from ${filename}"
-            continue
-        fi
-
-        # Check for ID collision
-        if [[ -n "${BAISH_DISCOVERED_PROVIDERS[${provider_id}]+_}" ]]; then
-            baish_print_error "Provider ID collision: ${provider_id} already registered"
-            exit 1
-        fi
-
-        # Validate required functions
-        local required_funcs=("provider_${provider_id}_metadata" "provider_${provider_id}_auth" "provider_${provider_id}_list_models" "provider_${provider_id}_chat")
-        local missing=0
-        local func
-        for func in "${required_funcs[@]}"; do
-            if ! declare -F "${func}" &>/dev/null; then
-                baish_print_error "Provider ${provider_id} missing required function: ${func}"
-                missing=1
+        # Check if the state provider is still available
+        local found=0
+        for pid in "${BAISH_PROVIDER_IDS[@]}"; do
+            if [[ "${pid}" == "${state_provider}" ]]; then
+                found=1
                 break
             fi
         done
 
-        if (( missing )); then
-            continue
-        fi
+        if (( found )); then
+            # Check for env-based auth or existing auth file
+            BAISH_CURRENT_PROVIDER="${state_provider}"
+            if baish_provider_has_env_auth; then
+                BAISH_CURRENT_MODEL="${state_model}"
+                baish_debug "State restored with env auth: ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+                return 0
+            fi
 
-        BAISH_DISCOVERED_PROVIDERS["${provider_id}"]="${provider_file}"
-        BAISH_PROVIDER_IDS+=("${provider_id}")
-        baish_debug "Discovered provider: ${provider_id}"
+            # Check if auth file exists for this provider
+            case "${state_provider}" in
+                copilot)
+                    if [[ -f "${BAISH_AUTH_DIR}/copilot.json" ]]; then
+                        BAISH_CURRENT_MODEL="${state_model}"
+                        baish_debug "State restored from file auth: ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+                        return 0
+                    fi
+                    ;;
+                kilo)
+                    if [[ -f "${BAISH_AUTH_DIR}/kilo.json" ]]; then
+                        BAISH_CURRENT_MODEL="${state_model}"
+                        baish_debug "State restored from file auth: ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+                        return 0
+                    fi
+                    ;;
+                mock)
+                    # Mock doesn't need auth
+                    BAISH_CURRENT_MODEL="${state_model}"
+                    baish_debug "State restored (mock): ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+                    return 0
+                    ;;
+            esac
+
+            baish_debug "State provider '${state_provider}' found but needs re-auth"
+        fi
+    fi
+
+    # Need to select a provider interactively
+    # Filter to only selectable providers
+    local selectable_count=0
+    local selectable_ids=()
+    for pid in "${BAISH_PROVIDER_IDS[@]}"; do
+        local metadata
+        metadata=$(baish_provider_metadata "${pid}")
+        local selectable
+        selectable=$(echo "${metadata}" | jq -r '.selectable // false')
+        if [[ "${selectable}" == "true" ]]; then
+            selectable_ids+=("${pid}")
+            selectable_count=$((selectable_count + 1))
+        fi
     done
-}
 
-baish_discover_providers
-
-# Select provider (try state, then default to mock if available)
-baish_select_provider() {
-    # Try loading from state
-    if baish_state_read; then
-        if [[ -n "${BAISH_DISCOVERED_PROVIDERS[${BAISH_STATE_PROVIDER}]+_}" ]]; then
-            BAISH_CURRENT_PROVIDER="${BAISH_STATE_PROVIDER}"
-            BAISH_CURRENT_MODEL="${BAISH_STATE_MODEL}"
-            baish_debug "Provider restored from state: ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
-            return 0
-        fi
-        baish_debug "State provider '${BAISH_STATE_PROVIDER}' not available, falling back"
+    # If only mock is available, use it
+    if (( selectable_count == 0 )); then
+        for pid in "${BAISH_PROVIDER_IDS[@]}"; do
+            if [[ "${pid}" == "mock" ]]; then
+                BAISH_CURRENT_PROVIDER="mock"
+                local models
+                models=$(provider_mock_list_models)
+                BAISH_CURRENT_MODEL=$(echo "${models}" | jq -r '.[0].id')
+                baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+                baish_debug "Defaulted to mock provider (no selectable providers)"
+                return 0
+            fi
+        done
+        baish_print_error "No providers available"
+        exit 1
     fi
 
-    # Default to mock provider for testing
-    if [[ -n "${BAISH_DISCOVERED_PROVIDERS[mock]+_}" ]]; then
-        BAISH_CURRENT_PROVIDER="mock"
-        local models
-        models=$(provider_mock_list_models)
-        BAISH_CURRENT_MODEL=$(echo "${models}" | jq -r '.[0].id')
-        baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-        baish_debug "Defaulted to mock provider"
-        return 0
+    # Show provider picker
+    baish_provider_select_interactive
+    if [[ -z "${BAISH_CURRENT_PROVIDER}" ]]; then
+        baish_print_error "No provider selected"
+        exit 1
     fi
 
-    baish_print_error "No providers available"
-    exit 1
+    # Authenticate
+    if ! baish_provider_auth; then
+        baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+        exit 1
+    fi
+
+    # Select model
+    baish_model_select_interactive
+    if [[ -z "${BAISH_CURRENT_MODEL}" ]]; then
+        baish_print_error "No model selected"
+        exit 1
+    fi
+
+    # Persist state
+    baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
 }
 
-baish_select_provider
+baish_startup
 
 baish_print_banner
 baish_print_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_MODEL}"
@@ -184,6 +208,37 @@ baish_main_loop() {
                     ;;
                 /help)
                     baish_usage
+                    ;;
+                /connect)
+                    if baish_provider_auth; then
+                        baish_print_info "Authenticated with ${BAISH_CURRENT_PROVIDER}."
+                        # Re-select model after auth
+                        if baish_model_select_interactive; then
+                            baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+                            baish_print_info "Model set to: ${BAISH_CURRENT_MODEL}"
+                        fi
+                    else
+                        baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+                    fi
+                    ;;
+                /provider)
+                    baish_provider_select_interactive
+                    if [[ -n "${BAISH_CURRENT_PROVIDER}" ]]; then
+                        if baish_provider_auth; then
+                            baish_model_select_interactive
+                            baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+                            baish_print_info "Switched to ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
+                        else
+                            baish_print_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+                        fi
+                    fi
+                    ;;
+                /model)
+                    baish_model_select_interactive
+                    if [[ -n "${BAISH_CURRENT_MODEL}" ]]; then
+                        baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+                        baish_print_info "Model set to: ${BAISH_CURRENT_MODEL}"
+                    fi
                     ;;
                 *)
                     baish_print_error "Unknown command: ${user_input}"
