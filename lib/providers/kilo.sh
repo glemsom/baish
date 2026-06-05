@@ -195,6 +195,7 @@ provider_kilo_chat() {
     fi
 
     baish_debug "Kilo: sending chat request (model: ${model})"
+    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/v1/chat/completions" "" "sending request"
 
     local response
     response=$(curl -s -w "\n%{http_code}" \
@@ -209,18 +210,23 @@ provider_kilo_chat() {
     http_code=$(echo "${response}" | tail -1)
     body=$(echo "${response}" | sed '$d')
 
+    baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/v1/chat/completions" "${http_code}"
+
     if [[ "${http_code}" != "200" ]]; then
         local error_msg
         error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
 
         # Detect context overflow
         if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
+            baish_debug "Kilo: context overflow detected"
             echo "CONTEXT_OVERFLOW" >&2
             return 1
         fi
 
         # Detect auth failure
         if [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
+            baish_debug "Kilo: auth failure (HTTP ${http_code})"
+            echo "AUTH_FAILURE" >&2
             baish_print_error "Kilo: API key is invalid or expired. Please re-authenticate with /connect." >&2
             return 1
         fi
