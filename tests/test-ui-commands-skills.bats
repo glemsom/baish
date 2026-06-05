@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 7 — Terminal UI, slash commands, and skills system
+# BAISH — Tests: Terminal UI, Slash Commands, and Skills System
 #
 # Tests:
 # - Slash command dispatch: /quit, /exit, /new, /connect, /provider, /model, /skill:<name>

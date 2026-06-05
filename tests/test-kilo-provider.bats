@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 6 — Kilo Gateway provider full implementation
+# BAISH — Tests: Kilo Gateway Provider Full Implementation
 #
 # Tests:
 # - API key auth validates against the gateway and persists the key

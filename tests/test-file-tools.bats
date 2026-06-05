@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 3 — File tools (read, write, edit) and tool execution engine
+# BAISH — Tests: File Tools (read, write, edit) and Tool Execution Engine
 #
 # Tests:
 # - Read tool: basic read, line range, file not found, directory

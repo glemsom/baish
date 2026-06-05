@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 5 — Copilot provider full implementation
+# BAISH — Tests: Copilot Provider Full Implementation
 
 setup() {
     BAISH_STATE_DIR="$(mktemp -d)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 2 — Provider discovery and multi-provider infrastructure
+# BAISH — Tests: Provider Discovery and Multi-Provider Infrastructure
 #
 # Tests:
 # - Provider discovery scans and validates provider files

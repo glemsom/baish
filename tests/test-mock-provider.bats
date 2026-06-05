@@ -1,7 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: mock provider end-to-end
-# Exercises the agent loop with the mock provider, verifying that a user
-# message produces an assistant response.
+# BAISH — Tests: Mock Provider, State, Session, Debug, and basic Agent Loop
 
 setup() {
     # Isolate state to a temp directory

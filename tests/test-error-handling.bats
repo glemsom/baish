@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH - Test: Slice 8 - Error handling and resilience
+# BAISH — Tests: Error Handling and Resilience
 
 setup() {
     BAISH_STATE_DIR="$(mktemp -d)"

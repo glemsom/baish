@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# BAISH — Test: Slice 4 — Bash tool, agent loop limits, and thinking spinner
+# BAISH — Tests: Bash Tool, Agent Loop Limits, and Thinking Spinner
 #
 # Tests:
 # - Bash tool: basic execution, launch directory context, env inheritance
