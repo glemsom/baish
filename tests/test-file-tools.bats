@@ -873,3 +873,198 @@ after" ]]
     # "bar" appears once in original, "foo" appears once — both valid
     [[ "$ok" == "true" ]]
 }
+
+# ============================================================
+# Tool schemas — baish_tool_schemas
+# ============================================================
+
+@test "baish_tool_schemas returns valid JSON with 4 tools" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    # Verify it's valid JSON
+    echo "${schemas}" | jq '.' > /dev/null
+
+    local count
+    count=$(echo "${schemas}" | jq 'length')
+    [[ "${count}" -eq 4 ]]
+}
+
+@test "baish_tool_schemas includes read tool with correct structure" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local name desc has_params has_props has_required
+    name=$(echo "${schemas}" | jq -r '.[0].function.name')
+    desc=$(echo "${schemas}" | jq -r '.[0].function.description')
+    has_params=$(echo "${schemas}" | jq '.[0].function.parameters | has("properties")')
+    has_props=$(echo "${schemas}" | jq '.[0].function.parameters.properties | has("path")')
+    has_required=$(echo "${schemas}" | jq '.[0].function.parameters.required | index("path") != null')
+
+    [[ "${name}" == "read" ]]
+    [[ -n "${desc}" ]]
+    [[ "${has_params}" == "true" ]]
+    [[ "${has_props}" == "true" ]]
+    [[ "${has_required}" == "true" ]]
+}
+
+@test "baish_tool_schemas includes write tool with correct structure" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local name
+    name=$(echo "${schemas}" | jq -r '.[1].function.name')
+    [[ "${name}" == "write" ]]
+
+    local has_path has_content
+    has_path=$(echo "${schemas}" | jq '.[1].function.parameters.properties | has("path")')
+    has_content=$(echo "${schemas}" | jq '.[1].function.parameters.properties | has("content")')
+    [[ "${has_path}" == "true" ]]
+    [[ "${has_content}" == "true" ]]
+
+    local required_count
+    required_count=$(echo "${schemas}" | jq '.[1].function.parameters.required | length')
+    [[ "${required_count}" -eq 2 ]]
+}
+
+@test "baish_tool_schemas includes edit tool with correct structure" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local name
+    name=$(echo "${schemas}" | jq -r '.[2].function.name')
+    [[ "${name}" == "edit" ]]
+
+    # Verify edits parameter has items schema
+    local has_edits has_items
+    has_edits=$(echo "${schemas}" | jq '.[2].function.parameters.properties | has("edits")')
+    has_items=$(echo "${schemas}" | jq '.[2].function.parameters.properties.edits | has("items")')
+    [[ "${has_edits}" == "true" ]]
+    [[ "${has_items}" == "true" ]]
+}
+
+@test "baish_tool_schemas includes bash tool with correct structure" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local name
+    name=$(echo "${schemas}" | jq -r '.[3].function.name')
+    [[ "${name}" == "bash" ]]
+
+    local has_command has_env
+    has_command=$(echo "${schemas}" | jq '.[3].function.parameters.properties | has("command")')
+    has_env=$(echo "${schemas}" | jq '.[3].function.parameters.properties | has("env")')
+    [[ "${has_command}" == "true" ]]
+    [[ "${has_env}" == "true" ]]
+
+    local required
+    required=$(echo "${schemas}" | jq -r '.[3].function.parameters.required[0]')
+    [[ "${required}" == "command" ]]
+}
+
+@test "baish_tool_schemas each tool has type=function" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local types
+    types=$(echo "${schemas}" | jq -r '[.[].type] | unique | join(",")')
+    [[ "${types}" == "function" ]]
+}
+
+@test "baish_tool_schemas each tool has unique name" {
+    local schemas
+    schemas=$(baish_tool_schemas)
+
+    local count unique_count
+    count=$(echo "${schemas}" | jq 'length')
+    unique_count=$(echo "${schemas}" | jq '[.[].function.name] | unique | length')
+    [[ "${count}" -eq "${unique_count}" ]]
+}
+
+@test "agent loop sends tool schemas to provider" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I have tools!"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    # Use a file to capture tools_json (since $() creates a subshell,
+    # variable assignment inside overridden function won't propagate)
+    local captured_file="${BAISH_STATE_DIR}/captured_tools.json"
+    rm -f "${captured_file}"
+
+    # Override the provider function to capture tools_json to a file
+    function provider_mock_chat() {
+        local messages_json="$1"
+        local tools_json="$2"
+        # Write tools_json to capture file
+        printf '%s' "${tools_json}" > "${captured_file}"
+        # Return standard mock response
+        jq -n --arg text "${BAISH_MOCK_RESPONSE:-I am the mock provider. Your message was received.}" --argjson tc "${BAISH_MOCK_TOOL_CALLS:-[]}" \
+            '{"assistant_text": $text, "tool_calls": $tc}'
+    }
+    export -f provider_mock_chat
+
+    baish_agent_run_user_message "Hello"
+
+    # Verify tools were sent (not empty array)
+    [[ -f "${captured_file}" ]]
+    local tool_count
+    tool_count=$(jq 'length' "${captured_file}")
+    [[ "${tool_count}" -eq 4 ]]
+
+    # Verify first tool is read
+    local first_tool_name
+    first_tool_name=$(jq -r '.[0].function.name' "${captured_file}")
+    [[ "${first_tool_name}" == "read" ]]
+}
+
+@test "kilo provider receives tool schemas from agent loop" {
+    BAISH_CURRENT_PROVIDER="kilo"
+    BAISH_CURRENT_MODEL="openai/gpt-4o"
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    local captured_payload="${BAISH_STATE_DIR}/kilo_tools_payload.json"
+
+    # Mock curl to capture the payload
+    function curl() {
+        local args=("$@")
+        local i
+        for i in "${!args[@]}"; do
+            if [[ "${args[$i]}" == "-d" ]]; then
+                echo "${args[$((i+1))]}" > "${captured_payload}"
+                break
+            fi
+        done
+        printf '{"choices": [{"message": {"content": "ok", "tool_calls": []}}]}\n200'
+    }
+    export -f curl
+
+    # Need API key for kilo provider
+    export KILO_API_KEY="sk-test-schemas"
+
+    # Source kilo provider for this test
+    source "${BAISH_ROOT}/lib/providers/kilo.sh"
+
+    baish_agent_run_user_message "List files"
+
+    # Verify the payload contains tools
+    [[ -f "${captured_payload}" ]]
+    local has_tools
+    has_tools=$(jq 'has("tools")' "${captured_payload}")
+    [[ "${has_tools}" == "true" ]]
+
+    local tool_count
+    tool_count=$(jq '.tools | length' "${captured_payload}")
+    [[ "${tool_count}" -eq 4 ]]
+
+    local first_tool_name
+    first_tool_name=$(jq -r '.tools[0].function.name' "${captured_payload}")
+    [[ "${first_tool_name}" == "read" ]]
+}
+

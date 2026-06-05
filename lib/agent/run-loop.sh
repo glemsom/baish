@@ -28,7 +28,8 @@ baish_agent_run_user_message() {
         fi
 
         # Build request with tools
-        local tools_json="[]"
+        local tools_json
+        tools_json=$(baish_tool_schemas)
         local request_json
         request_json=$(baish_session_build_request "${tools_json}")
 
