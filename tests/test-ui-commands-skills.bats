@@ -133,6 +133,90 @@ teardown() {
 }
 
 # ============================================================
+# TAB completion — baish_tab_complete (bind -x handler)
+# ============================================================
+
+@test "baish_tab_complete replaces word with single @ path match" {
+    local test_dir="${BAISH_STATE_DIR}/project"
+    mkdir -p "${test_dir}/src"
+    touch "${test_dir}/src/main.sh"
+
+    READLINE_LINE="@src/main"
+    READLINE_POINT=9
+    BAISH_LAUNCH_DIR="${test_dir}"
+
+    baish_tab_complete
+
+    [[ "${READLINE_LINE}" == "@src/main.sh" ]]
+    [[ "${READLINE_POINT}" -eq 12 ]]
+}
+
+@test "baish_tab_complete replaces word with single / cmd match" {
+    READLINE_LINE="/q"
+    READLINE_POINT=2
+
+    baish_tab_complete
+
+    [[ "${READLINE_LINE}" == "/quit" ]]
+    [[ "${READLINE_POINT}" -eq 5 ]]
+}
+
+@test "baish_tab_complete does nothing for non-@ non-/ words" {
+    READLINE_LINE="hello"
+    READLINE_POINT=5
+
+    baish_tab_complete
+
+    # Should be unchanged
+    [[ "${READLINE_LINE}" == "hello" ]]
+    [[ "${READLINE_POINT}" -eq 5 ]]
+}
+
+@test "baish_tab_complete extends to common prefix for multiple @ matches" {
+    local test_dir="${BAISH_STATE_DIR}/project"
+    mkdir -p "${test_dir}/lib"
+    touch "${test_dir}/lib/file_a.sh"
+    touch "${test_dir}/lib/file_b.sh"
+
+    READLINE_LINE="@lib/file_"
+    READLINE_POINT=10
+    BAISH_LAUNCH_DIR="${test_dir}"
+
+    baish_tab_complete
+
+    # Common prefix of file_a.sh and file_b.sh is "file_" — no extension
+    [[ "${READLINE_LINE}" == "@lib/file_" ]]
+    [[ "${READLINE_POINT}" -eq 10 ]]
+}
+
+@test "baish_tab_complete extends common prefix for / cmds" {
+    READLINE_LINE="/"
+    READLINE_POINT=1
+
+    baish_tab_complete
+
+    # All commands share "/" — no extension, stays at "/"
+    # But we verify it doesn't crash
+    [[ "${READLINE_LINE}" == "/" ]]
+    [[ "${READLINE_POINT}" -eq 1 ]]
+}
+
+@test "baish_tab_complete does nothing for empty word (cursor at space)" {
+    READLINE_LINE="hello "
+    READLINE_POINT=6
+
+    baish_tab_complete
+
+    [[ "${READLINE_LINE}" == "hello " ]]
+    [[ "${READLINE_POINT}" -eq 6 ]]
+}
+
+@test "baish_setup_completion runs without error" {
+    run baish_setup_completion
+    [[ "${status}" -eq 0 ]]
+}
+
+# ============================================================
 # TAB completion — slash command completion (/)
 # ============================================================
 

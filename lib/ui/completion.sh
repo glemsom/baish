@@ -6,6 +6,92 @@
 # Registered slash commands
 BAISH_SLASH_COMMANDS=("/quit" "/exit" "/new" "/help" "/connect" "/provider" "/model")
 
+# Handle TAB completion during read -e prompts.
+# Called via 'bind -x' when TAB is pressed in readline.
+# Reads READLINE_LINE and READLINE_POINT, calls baish_complete_input,
+# and updates the readline buffer with the completion result.
+baish_tab_complete() {
+    local before_cursor="${READLINE_LINE:0:$READLINE_POINT}"
+    local after_cursor="${READLINE_LINE:$READLINE_POINT}"
+
+    # Extract the current (last) token from before-cursor text
+    local current_word
+    current_word="${before_cursor##* }"
+
+    # Nothing to complete (cursor at a space, or empty line)
+    if [[ -z "${current_word}" ]]; then
+        return
+    fi
+
+    local before_word="${before_cursor%${current_word}}"
+
+    # Only handle completions for @-prefix (paths) and /-prefix (commands)
+    if [[ "${current_word}" != @* && "${current_word}" != /* ]]; then
+        return
+    fi
+
+    local completions
+    completions=$(baish_complete_input "${current_word}" "${BAISH_LAUNCH_DIR:-$(pwd)}")
+
+    if [[ -z "${completions}" ]]; then
+        return
+    fi
+
+    # Count non-empty completion lines
+    local count=0
+    local comp
+    while IFS= read -r comp; do
+        [[ -z "${comp}" ]] && continue
+        count=$((count + 1))
+    done <<< "${completions}"
+
+    if (( count == 1 )); then
+        # Single match: replace the current word and move cursor past it
+        local match
+        match=$(echo "${completions}" | grep -m1 .)
+        READLINE_LINE="${before_word}${match}${after_cursor}"
+        READLINE_POINT=$(( ${#before_word} + ${#match} ))
+    else
+        # Multiple matches: find the longest common prefix
+        local common
+        common=$(echo "${completions}" | grep -m1 .)
+        while IFS= read -r comp; do
+            [[ -z "${comp}" ]] && continue
+            while [[ "${comp}" != "${common}"* ]]; do
+                common="${common%?}"
+            done
+        done <<< "${completions}"
+
+        if [[ -n "${common}" && "${common}" != "${current_word}" ]]; then
+            # Extend the current word to the common prefix
+            READLINE_LINE="${before_word}${common}${after_cursor}"
+            READLINE_POINT=$(( ${#before_word} + ${#common} ))
+        else
+            # No common extension — list all completions on stderr
+            printf '\n' >&2
+            local first=true
+            while IFS= read -r comp; do
+                [[ -z "${comp}" ]] && continue
+                if [[ "${first}" == "true" ]]; then
+                    printf '%s' "${comp}" >&2
+                    first=false
+                else
+                    printf '  %s' "${comp}" >&2
+                fi
+            done <<< "${completions}"
+            printf '\n' >&2
+        fi
+    fi
+}
+
+# Set up readline TAB completion.
+# Registers baish_tab_complete as the handler for TAB keypresses
+# so that @-prefixed path completion and /-prefixed command completion
+# work inside 'read -e' prompts.
+baish_setup_completion() {
+    bind -x '"\\C-i": baish_tab_complete' 2>/dev/null || true
+}
+
 # Complete input for readline. Called by bash's completion system.
 # Sets COMPREPLY array with possible completions.
 # When called directly (e.g., from tests), prints completions to stdout.
