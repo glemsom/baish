@@ -26,6 +26,7 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/session.sh"
     source "${BAISH_ROOT}/lib/agent/run-loop.sh"
     source "${BAISH_ROOT}/lib/providers/discovery.sh"
+    source "${BAISH_ROOT}/lib/providers/chat-parser.sh"
     source "${BAISH_ROOT}/lib/providers/copilot.sh"
 }
 

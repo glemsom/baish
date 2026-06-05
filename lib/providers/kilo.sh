@@ -171,30 +171,9 @@ provider_kilo_chat() {
 
     local model="${BAISH_CURRENT_MODEL}"
 
-    # Build Chat Completions payload (Kilo uses OpenAI-compatible API)
+    # Build Chat Completions payload via shared parser
     local payload
-    if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
-        payload=$(jq -n \
-            --arg model "${model}" \
-            --argjson messages "${messages_json}" \
-            --argjson tools "${tools_json}" \
-            '{
-                "model": $model,
-                "messages": $messages,
-                "tools": $tools,
-                "stream": false,
-                "parallel_tool_calls": false
-            }')
-    else
-        payload=$(jq -n \
-            --arg model "${model}" \
-            --argjson messages "${messages_json}" \
-            '{
-                "model": $model,
-                "messages": $messages,
-                "stream": false
-            }')
-    fi
+    payload=$(baish_provider_build_chat_payload "${model}" "${messages_json}" "${tools_json}")
 
     baish_debug "Kilo: sending chat request (model: ${model})"
     baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/chat/completions" "" "sending request"
@@ -214,44 +193,15 @@ provider_kilo_chat() {
 
     baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/chat/completions" "${http_code}"
 
-    if [[ "${http_code}" != "200" ]]; then
-        local error_msg
-        error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
-
-        # Detect error type and return structured JSON
-        if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
-            baish_debug "Kilo: context overflow detected"
-            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
-            return 0
-        fi
-
-        if [[ "${http_code}" == "401" || "${http_code}" == "403" ]]; then
-            baish_debug "Kilo: auth failure (HTTP ${http_code})"
-            jq -n --arg msg "Kilo: API key is invalid or expired. Please re-authenticate with /connect." '{"ok": false, "error": {"code": "AUTH_FAILURE", "message": $msg}}'
-            return 0
-        fi
-
-        jq -n --arg msg "Kilo: Chat error (HTTP ${http_code}): ${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+    # Delegate error detection to shared parser
+    local error_result
+    error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
+        '.error.message // .message // "Unknown error"' "AUTH_FAILURE" "Kilo: ")
+    if [[ -n "${error_result}" ]]; then
+        echo "${error_result}"
         return 0
     fi
 
-    # Parse response
-    local assistant_text
-    assistant_text=$(echo "${body}" | jq -r '.choices[0].message.content // ""')
-
-    # Extract tool calls
-    local tool_calls
-    tool_calls=$(echo "${body}" | jq -c '
-        .choices[0].message.tool_calls // [] |
-        [.[] | {
-            "id": .id,
-            "name": .function.name,
-            "arguments": .function.arguments
-        }]
-    ')
-
-    jq -n \
-        --arg text "${assistant_text}" \
-        --argjson tc "${tool_calls}" \
-        '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
+    # Delegate successful response parsing to shared parser
+    baish_provider_parse_chat_response_body "${body}"
 }

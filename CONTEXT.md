@@ -28,6 +28,8 @@
 
 **Context Overflow** — When the message history exceeds the model's context window limit. Handled by showing guidance to use `/new`.
 
+**Chat Parser** — A shared module (`lib/providers/chat-parser.sh`) that builds Chat Completions payloads and parses HTTP responses from LLM provider chat APIs. Handles error detection (context overflow, auth failure, generic errors) and normalizes successful responses into the standard `{assistant_text, tool_calls}` format. Used by provider adapters to reduce duplication.
+
 **Token Expiry** — When a Copilot runtime token (`ghc_*`) expires. Handled by automatic silent refresh.
 
 **Auth Failure** — When credentials are invalid (bad key, denied OAuth). Handled by failing loudly and prompting the user.

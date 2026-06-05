@@ -325,17 +325,10 @@ _copilot_chat_single() {
         fi
 
         if [[ "${http_code}" != "200" ]]; then
-            local error_msg
-            error_msg=$(echo "${body}" | jq -r '.message // .error // "Unknown error"' 2>/dev/null)
-            if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
-                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
-                return 0
-            fi
-            if [[ "${http_code}" == "401" ]]; then
-                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "TOKEN_EXPIRED", "message": $msg}}'
-                return 0
-            fi
-            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+            local error_result
+            error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
+                '.message // .error // "Unknown error"' "TOKEN_EXPIRED" "")
+            echo "${error_result}"
             return 0
         fi
 
@@ -364,30 +357,9 @@ _copilot_chat_single() {
         # Chat Completions API for all other models
         url="https://api.githubcopilot.com/chat/completions"
 
-        # Build Chat Completions payload
+        # Build Chat Completions payload via shared parser
         local payload
-        if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
-            payload=$(jq -n \
-                --arg model "${model}" \
-                --argjson messages "${messages_json}" \
-                --argjson tools "${tools_json}" \
-                '{
-                    "model": $model,
-                    "messages": $messages,
-                    "tools": $tools,
-                    "stream": false,
-                    "parallel_tool_calls": false
-                }')
-        else
-            payload=$(jq -n \
-                --arg model "${model}" \
-                --argjson messages "${messages_json}" \
-                '{
-                    "model": $model,
-                    "messages": $messages,
-                    "stream": false
-                }')
-        fi
+        payload=$(baish_provider_build_chat_payload "${model}" "${messages_json}" "${tools_json}")
 
         baish_debug "Copilot: sending to Chat Completions API (model: ${model})"
 
@@ -405,39 +377,15 @@ _copilot_chat_single() {
         body=$(echo "${response}" | sed '$d')
 
         if [[ "${http_code}" != "200" ]]; then
-            local error_msg
-            error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)
-            if echo "${body}" | grep -qi "context_length_exceeded\|context.*exceeded\|too long"; then
-                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "CONTEXT_OVERFLOW", "message": $msg}}'
-                return 0
-            fi
-            if [[ "${http_code}" == "401" ]]; then
-                jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "TOKEN_EXPIRED", "message": $msg}}'
-                return 0
-            fi
-            jq -n --arg msg "${error_msg}" '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+            local error_result
+            error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
+                '.error.message // .message // "Unknown error"' "TOKEN_EXPIRED" "")
+            echo "${error_result}"
             return 0
         fi
 
-        # Parse Chat Completions response
-        local assistant_text
-        assistant_text=$(echo "${body}" | jq -r '.choices[0].message.content // ""')
-
-        # Extract tool calls
-        local tool_calls
-        tool_calls=$(echo "${body}" | jq -c '
-            .choices[0].message.tool_calls // [] |
-            [.[] | {
-                "id": .id,
-                "name": .function.name,
-                "arguments": .function.arguments
-            }]
-        ')
-
-        jq -n \
-            --arg text "${assistant_text}" \
-            --argjson tc "${tool_calls}" \
-            '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
+        # Delegate successful response parsing to shared parser
+        baish_provider_parse_chat_response_body "${body}"
     fi
 }
 

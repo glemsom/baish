@@ -31,6 +31,7 @@ setup() {
 
     # Source provider files directly for tests that call provider functions
     source "${BAISH_ROOT}/lib/providers/mock.sh"
+    source "${BAISH_ROOT}/lib/providers/chat-parser.sh"
     source "${BAISH_ROOT}/lib/providers/copilot.sh"
     source "${BAISH_ROOT}/lib/providers/kilo.sh"
 }
