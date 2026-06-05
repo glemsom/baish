@@ -31,7 +31,7 @@ baish_discover_providers() {
 
         local after_funcs new_funcs
         after_funcs=$(declare -F | awk '{print $3}')
-        new_funcs=$(comm -13 <(echo "${before_funcs}") <(echo "${after_funcs}"))
+        new_funcs=$(comm -13 <(echo "${before_funcs}" | sort) <(echo "${after_funcs}" | sort))
 
         # Extract provider ID from provider_<id>_metadata function
         local provider_id
