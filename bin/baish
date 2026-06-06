@@ -189,7 +189,6 @@ baish_output_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_
 baish_main_loop() {
     while (( ! BAISH_SESSION_EXIT_REQUESTED )); do
         local user_input
-        baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
 
         if ! user_input=$(baish_read_input); then
             # EOF (Ctrl+D)
@@ -225,7 +224,13 @@ baish_read_input() {
     local result=""
     local line
 
-    if ! read -e -r line; then
+    # Build the readline-safe prompt with \001/\002 ANSI delimiters so
+    # readline knows the prompt width and doesn't overwrite it during
+    # TAB completion redraws.
+    local prompt
+    prompt=$(baish_output_readline_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}")
+
+    if ! read -e -p "${prompt}" -r line; then
         return 1
     fi
     result="${line}"
@@ -234,8 +239,7 @@ baish_read_input() {
     while [[ "${result}" == *\\ ]]; do
         # Remove trailing backslash
         result="${result%\\}"
-        baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
-        if ! read -e -r line; then
+        if ! read -e -p "${prompt}" -r line; then
             return 1
         fi
         result="${result}

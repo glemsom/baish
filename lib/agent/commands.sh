@@ -98,9 +98,8 @@ ${entry}"
     local selection
     selection=$(echo -e "${display}" | gum choose --height=10 --header="Ctrl+G Palette — pick an action" 2>/dev/null)
 
-    # If user cancelled (empty selection), re-display prompt and return
+    # If user cancelled (empty selection), just return
     if [[ -z "${selection}" ]]; then
-        baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
         return 0
     fi
 
@@ -196,6 +195,5 @@ ${s}"
             ;;
     esac
 
-    # Re-display prompt so the user sees immediate feedback
-    baish_output_prompt "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
+    # Next iteration of the main loop will show the prompt via read -e -p
 }

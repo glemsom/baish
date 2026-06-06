@@ -49,6 +49,18 @@ baish_output_prompt() {
     printf "${_BAISH_COLOR_GREEN}[%s/%s]${_BAISH_COLOR_RESET} > " "${provider}" "${model}"
 }
 
+# Build a readline-safe prompt string for use with 'read -e -p'.
+# Wraps ANSI escape sequences in \001 / \002 so readline properly
+# calculates the prompt width for redraws (TAB completion, etc.).
+# Without this, readline draws from column 0 and overwrites the
+# separately-printed prompt.
+baish_output_readline_prompt() {
+    local provider="$1"
+    local model="$2"
+    # \001 = start of non-printing chars, \002 = end (readline RL_PROMPT_START_IGNORE/RL_PROMPT_END_IGNORE)
+    printf '\001\033[32m\002[%s/%s]\001\033[0m\002 > ' "${provider}" "${model}"
+}
+
 # Assistant response
 baish_output_assistant_response() {
     local text="$1"
