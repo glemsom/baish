@@ -14,6 +14,10 @@ baish_agent_run_user_message() {
     baish_session_append_user_message "${user_text}"
     BAISH_SESSION_TOOL_ROUNDS=0
 
+    # stderr capture file — cleaned up after the loop
+    local stderr_file
+    stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
+
     # Tool call loop
     while true; do
         # Check limits
@@ -34,8 +38,7 @@ baish_agent_run_user_message() {
         request_json=$(baish_session_build_request "${tools_json}")
 
         # Call the provider
-        local response_json stderr_file
-        stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
+        local response_json
         response_json=$(baish_agent_provider_chat_capture "${request_json}")
         local exit_code=$?
 
@@ -144,13 +147,16 @@ baish_agent_run_user_message() {
 
         BAISH_SESSION_TOOL_ROUNDS=$(( BAISH_SESSION_TOOL_ROUNDS + 1 ))
     done
+
+    # Clean up stderr capture file
+    rm -f "${stderr_file}"
 }
 
 # Call provider chat, capturing output with a thinking spinner.
 # Captures stdout (response JSON) and stderr (error signals) separately.
 # Writes stderr to BAISH_CHAT_STDERR_FILE for the caller to analyze.
 # If BAISH_CHAT_STDERR_FILE is set, writes stderr there; otherwise
-# writes to /tmp/baish_chat_stderr.$$ and cleans up.
+# writes stderr to $stderr_file
 baish_agent_provider_chat_capture() {
     local request_json="$1"
 
