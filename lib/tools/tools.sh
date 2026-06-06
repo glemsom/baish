@@ -153,11 +153,9 @@ baish_tool_write() {
     # Create parent directories
     mkdir -p "$(dirname "$path")"
 
-    # Atomic write: temp file in the same directory as target
-    local dir
-    dir=$(dirname "$path")
+    # Atomic write: temp file in /tmp (cleaned up on rename)
     local tmpfile
-    tmpfile=$(mktemp "${dir}/.baish_tmp.XXXXXX")
+    tmpfile=$(mktemp "${TMPDIR:-/tmp}/baish_write.XXXXXX")
 
     # Write content directly from jq to avoid command-substitution newline stripping
     jq -j '.content // ""' <<< "$args_json" > "$tmpfile"
@@ -387,10 +385,8 @@ baish_tool_edit() {
     fi
 
     # Atomic write to the target file
-    local dir
-    dir=$(dirname "$path")
     local tmpfile
-    tmpfile=$(mktemp "${dir}/.baish_tmp.XXXXXX")
+    tmpfile=$(mktemp "${TMPDIR:-/tmp}/baish_edit.XXXXXX")
 
     printf '%s' "$result" > "$tmpfile"
 
@@ -436,7 +432,7 @@ baish_tool_bash() {
 
     # Create a temporary script that sets env vars then runs the command
     local tmpscript
-    tmpscript=$(mktemp "${launch_dir}/.baish_bash.XXXXXX.sh")
+    tmpscript=$(mktemp "${TMPDIR:-/tmp}/baish_bash.XXXXXX.sh")
 
     # Write env exports and command to the temp script
     {
@@ -458,8 +454,8 @@ baish_tool_bash() {
 
     # Capture stdout and stderr separately
     local stdout_file stderr_file
-    stdout_file=$(mktemp "${launch_dir}/.baish_stdout.XXXXXX")
-    stderr_file=$(mktemp "${launch_dir}/.baish_stderr.XXXXXX")
+    stdout_file=$(mktemp "${TMPDIR:-/tmp}/baish_stdout.XXXXXX")
+    stderr_file=$(mktemp "${TMPDIR:-/tmp}/baish_stderr.XXXXXX")
 
     local exit_code=0
     local timed_out=false
