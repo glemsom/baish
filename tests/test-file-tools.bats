@@ -31,6 +31,7 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/session.sh"
     source "${BAISH_ROOT}/lib/agent/run-loop.sh"
     source "${BAISH_ROOT}/lib/providers/mock.sh"
+    source "${BAISH_ROOT}/lib/providers/chat-parser.sh"
 }
 
 teardown() {
@@ -1050,7 +1051,6 @@ after" ]]
     export KILO_API_KEY="sk-test-schemas"
 
     # Source kilo provider for this test
-    source "${BAISH_ROOT}/lib/providers/chat-parser.sh"
     source "${BAISH_ROOT}/lib/providers/kilo.sh"
 
     baish_agent_run_user_message "List files"

@@ -219,6 +219,22 @@ teardown() {
     [[ "${status}" -eq 0 ]]
 }
 
+@test "baish_setup_completion installs readline bindings for @-path and /-command completion" {
+    # Bug regression test: bind -x silently fails with "line editing not enabled"
+    # in non-interactive shells if set -o emacs is not called first. Without this,
+    # baish_tab_complete and baish_command_palette are never bound to \C-i / \C-g.
+    # Call setup directly (not via run) so the set -o emacs inside persists.
+    baish_setup_completion
+
+    # After setup, bind -X should show both custom keybindings.
+    # Avoid `run` because it forks a subshell where readline is not enabled.
+    local bind_output
+    bind_output=$(bind -X 2>/dev/null)
+    [[ -n "${bind_output}" ]]
+    [[ "${bind_output}" == *'"\C-i": "baish_tab_complete"'* ]]
+    [[ "${bind_output}" == *'"\C-g": "baish_command_palette"'* ]]
+}
+
 # ============================================================
 # TAB completion — slash command completion (/)
 # ============================================================

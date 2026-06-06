@@ -89,9 +89,19 @@ baish_tab_complete() {
 # so that @-prefixed path completion and /-prefixed command completion
 # work inside 'read -e' prompts.
 baish_setup_completion() {
-    bind -x '"\\C-i": baish_tab_complete' 2>/dev/null || true
+    # Enable readline line editing so bind -x works in non-interactive shells.
+    # The baish script runs as a non-interactive bash process, and bind -x
+    # requires readline to be initialized.
+    #
+    # IMPORTANT: The keyseq must be double-quoted (e.g., "\C-i") for bind -x
+    # to parse it as a control sequence. Without the inner double quotes, bash
+    # rejects the binding with "first non-whitespace character is not `\"'" —
+    # which 2>/dev/null silently swallows.
+    set -o emacs
+
+    bind -x '"\C-i": baish_tab_complete' 2>/dev/null || true
     # Ctrl+G opens the emoji command palette
-    bind -x '"\\C-g": baish_command_palette' 2>/dev/null || true
+    bind -x '"\C-g": baish_command_palette' 2>/dev/null || true
 }
 
 # Complete input for readline. Called by bash's completion system.

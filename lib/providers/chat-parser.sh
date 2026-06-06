@@ -109,3 +109,124 @@ baish_provider_parse_chat_response_body() {
         --argjson tc "${tool_calls}" \
         '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
 }
+
+# ============================================================
+# Tool schema generation (LLM interface seam)
+# ============================================================
+
+# Return OpenAI-compatible function-calling schemas for all tools.
+# Each tool follows the OpenAI tools format:
+#   {type: "function", function: {name, description, parameters}}
+# Schemas live at the LLM interface seam because they define the
+# contract between BAISH and the LLM provider API.
+baish_tool_schemas() {
+    cat <<'BAISH_EOJSON' | jq -c '.'
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "read",
+      "description": "Read file contents. Supports offset and limit for partial reads.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path (relative to launch directory)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "1-indexed line to start reading from"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of lines to read"
+          }
+        },
+        "required": ["path"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "write",
+      "description": "Write content to a file. Uses atomic write (temp file + rename). Creates parent directories if needed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path (relative to launch directory)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to write to the file"
+          }
+        },
+        "required": ["path", "content"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit",
+      "description": "Edit a file using exact text replacement. Supports multiple disjoint edits in one call. Each edit replaces oldText with newText. All edits are validated against the original file before any are applied.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path (relative to launch directory)"
+          },
+          "edits": {
+            "type": "array",
+            "description": "Array of edits to apply (each edit must have exactly one occurrence of oldText in the file)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oldText": {
+                  "type": "string",
+                  "description": "Exact text to replace (must appear exactly once in the file)"
+                },
+                "newText": {
+                  "type": "string",
+                  "description": "Replacement text"
+                }
+              },
+              "required": ["oldText", "newText"]
+            }
+          }
+        },
+        "required": ["path", "edits"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "bash",
+      "description": "Execute a shell command in the launch directory with inherited environment. Supports optional env variable overrides.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "env": {
+            "type": "object",
+            "description": "Optional environment variable overrides as key-value pairs",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["command"]
+      }
+    }
+  }
+]
+BAISH_EOJSON
+}
