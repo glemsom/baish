@@ -95,6 +95,7 @@ baish_output_tool_error() {
 
 # Display bash tool output with colored formatting.
 # Icon is resolved from tool name internally.
+# Only the last 5 lines of stdout/stderr are shown to avoid filling the chat window.
 # Args: tool_name, stdout, stderr, exit_code
 baish_output_bash_output() {
     local tool_name="$1"
@@ -106,12 +107,30 @@ baish_output_bash_output() {
 
     if [[ -n "$stdout_content" ]]; then
         printf "${_BAISH_COLOR_DIM}  %s stdout:${_BAISH_COLOR_RESET}\n" "${icon}"
-        printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_content"
+        local stdout_line_count
+        stdout_line_count=$(printf '%s\n' "$stdout_content" | wc -l | tr -d ' ')
+        if (( stdout_line_count > 5 )); then
+            local last_lines
+            last_lines=$(printf '%s\n' "$stdout_content" | tail -n 5)
+            printf "${_BAISH_COLOR_DIM}    … %d lines omitted${_BAISH_COLOR_RESET}\n" "$(( stdout_line_count - 5 ))"
+            printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$last_lines"
+        else
+            printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_content"
+        fi
     fi
 
     if [[ -n "$stderr_content" ]]; then
         printf "${_BAISH_COLOR_DIM}  %s stderr:${_BAISH_COLOR_RESET}\n" "${icon}"
-        printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_content"
+        local stderr_line_count
+        stderr_line_count=$(printf '%s\n' "$stderr_content" | wc -l | tr -d ' ')
+        if (( stderr_line_count > 5 )); then
+            local last_lines
+            last_lines=$(printf '%s\n' "$stderr_content" | tail -n 5)
+            printf "${_BAISH_COLOR_DIM}    … %d lines omitted${_BAISH_COLOR_RESET}\n" "$(( stderr_line_count - 5 ))"
+            printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$last_lines"
+        else
+            printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_content"
+        fi
     fi
 
     if (( exit_code != 0 )); then
