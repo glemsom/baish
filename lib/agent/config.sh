@@ -2,7 +2,7 @@
 # BAISH — Configuration and defaults
 
 # Maximum number of tool call rounds per user message
-BAISH_MAX_TOOL_ROUNDS="${BAISH_MAX_TOOL_ROUNDS:-20}"
+BAISH_MAX_TOOL_ROUNDS="${BAISH_MAX_TOOL_ROUNDS:-50}"
 
 # Maximum total tool calls across the session
 BAISH_MAX_TOOL_CALLS="${BAISH_MAX_TOOL_CALLS:-100}"
