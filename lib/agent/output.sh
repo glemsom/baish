@@ -106,31 +106,15 @@ baish_output_bash_output() {
     icon=$(_baish_output_tool_icon "${tool_name}")
 
     if [[ -n "$stdout_content" ]]; then
-        printf "${_BAISH_COLOR_DIM}  %s stdout:${_BAISH_COLOR_RESET}\n" "${icon}"
-        local stdout_line_count
-        stdout_line_count=$(printf '%s\n' "$stdout_content" | wc -l | tr -d ' ')
-        if (( stdout_line_count > 5 )); then
-            local last_lines
-            last_lines=$(printf '%s\n' "$stdout_content" | tail -n 5)
-            printf "${_BAISH_COLOR_DIM}    … %d lines omitted${_BAISH_COLOR_RESET}\n" "$(( stdout_line_count - 5 ))"
-            printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$last_lines"
-        else
-            printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_content"
-        fi
+        local stdout_indented
+        stdout_indented=$(printf '%s\n' "$stdout_content" | sed 's/^/    /')
+        printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_indented"
     fi
 
     if [[ -n "$stderr_content" ]]; then
-        printf "${_BAISH_COLOR_DIM}  %s stderr:${_BAISH_COLOR_RESET}\n" "${icon}"
-        local stderr_line_count
-        stderr_line_count=$(printf '%s\n' "$stderr_content" | wc -l | tr -d ' ')
-        if (( stderr_line_count > 5 )); then
-            local last_lines
-            last_lines=$(printf '%s\n' "$stderr_content" | tail -n 5)
-            printf "${_BAISH_COLOR_DIM}    … %d lines omitted${_BAISH_COLOR_RESET}\n" "$(( stderr_line_count - 5 ))"
-            printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$last_lines"
-        else
-            printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_content"
-        fi
+        local stderr_indented
+        stderr_indented=$(printf '%s\n' "$stderr_content" | sed 's/^/    /')
+        printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_indented"
     fi
 
     if (( exit_code != 0 )); then
@@ -171,9 +155,14 @@ baish_output_tool_announce() {
 baish_output_tool_announce_ok() {
     local tool_name="$1"
     local description="$2"
+    local suffix="${3:-}"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
-    printf "\r\033[K  ✅ %s %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}"
+    if [[ -n "$suffix" ]]; then
+        printf "\r\033[K  ✅ %s %s  ${_BAISH_COLOR_DIM}%s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}" "${suffix}"
+    else
+        printf "\r\033[K  ✅ %s %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}"
+    fi
 }
 
 # Update a tool announcement on error — overwrites the "🔄" line.

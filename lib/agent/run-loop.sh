@@ -121,11 +121,30 @@ baish_agent_run_user_message() {
             ok=$(echo "${result_json}" | jq -r '.ok')
             if [[ "${ok}" == "true" ]]; then
                 if [[ "${tool_name}" == "bash" ]]; then
-                    baish_output_tool_announce_ok "${tool_name}" "${tool_description}"
                     local bash_stdout bash_stderr bash_exit_code
                     bash_stdout=$(echo "${result_json}" | jq -r '.data.stdout // ""')
                     bash_stderr=$(echo "${result_json}" | jq -r '.data.stderr // ""')
                     bash_exit_code=$(echo "${result_json}" | jq -r '.data.exit_code // 0')
+                    # Build truncation suffix for the announcement line
+                    local suffix=""
+                    if [[ -n "$bash_stdout" ]]; then
+                        local so_lines
+                        so_lines=$(printf '%s\n' "$bash_stdout" | wc -l | tr -d ' ')
+                        if (( so_lines > 5 )); then
+                            suffix="… $(( so_lines - 5 )) lines omitted"
+                        fi
+                    fi
+                    if [[ -n "$bash_stderr" ]]; then
+                        local se_lines
+                        se_lines=$(printf '%s\n' "$bash_stderr" | wc -l | tr -d ' ')
+                        if (( se_lines > 5 )); then
+                            if [[ -n "$suffix" ]]; then
+                                suffix+=", "
+                            fi
+                            suffix+="stderr … $(( se_lines - 5 )) lines omitted"
+                        fi
+                    fi
+                    baish_output_tool_announce_ok "${tool_name}" "${tool_description}" "${suffix}"
                     baish_output_bash_output "${tool_name}" "${bash_stdout}" "${bash_stderr}" "${bash_exit_code}"
                 else
                     baish_output_tool_announce_ok "${tool_name}" "${tool_description}"
