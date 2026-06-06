@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — BAISH</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .card { transition: box-shadow .2s; }
+      .card:hover { box-shadow: 0 8px 30px rgba(0,0,0,.08); }
+      .diagram-box { min-height: 320px; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <!-- HEADER -->
+      <header class="space-y-4">
+        <div class="flex items-baseline justify-between">
+          <h1 class="text-3xl font-bold text-slate-800">BAISH — architecture review</h1>
+          <time class="text-sm text-slate-500">2026-06-06</time>
+        </div>
+        <div class="flex gap-6 text-xs uppercase tracking-wider text-slate-500">
+          <span><span class="inline-block w-3 h-3 bg-slate-800 mr-1 align-middle"></span> module</span>
+          <span><span class="inline-block w-6 border-t border-dashed border-slate-400 mr-1 align-middle"></span> seam</span>
+          <span><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1 align-middle"></span> leakage</span>
+          <span><span class="inline-block w-3 h-3 bg-emerald-700 mr-1 align-middle"></span> deep module</span>
+        </div>
+      </header>
+
+      <!-- CANDIDATES -->
+      <section id="candidates" class="space-y-10">
+
+        <!-- CANDIDATE 1: Engine dispatcher is shallow -->
+        <article class="card bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold text-slate-800">Collapse the tool engine dispatcher</h2>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="text-sm font-mono text-slate-600 space-y-0.5">
+            <div><code>lib/tools/engine.sh</code> — dispatcher + result helpers + schemas</div>
+            <div><code>lib/tools/tools.sh</code> — tool implementations</div>
+            <div><code>lib/providers/chat-parser.sh</code> — where schemas should live</div>
+            <div><code>lib/agent/run-loop.sh</code> — where the dispatcher is called</div>
+          </div>
+
+          <!-- Before/After diagram -->
+          <div class="grid grid-cols-2 gap-6 diagram-box">
+            <!-- Before -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</p>
+              <pre class="mermaid">
+                flowchart TB
+                  RL[run-loop.sh] --> ED[engine.sh dispatcher]
+                  ED --> TR[tools.sh<br/>read / write / edit / bash]
+                  ED --> H[helpers<br/>success_json / error_json]
+                  RL -.-> S[schema generation]
+                  S -.-> ED
+
+                  classDef thin fill:#e2e8f0,stroke:#94a3b8,stroke-width:1px;
+                  classDef call fill:#f8fafc,stroke:#64748b,stroke-width:1px;
+                  class ED,RL,S thin
+                  class TR,H call
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">Dispatchers adds zero — it's a pass-through</p>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After</p>
+              <pre class="mermaid">
+                flowchart TB
+                  RL[run-loop.sh] --> TS[tools.sh<br/>read / write / edit / bash<br/>+ helpers]
+                  CP[chat-parser.sh] --> S[schema generation]
+
+                  classDef deep fill:#0f172a,color:#fff,stroke-width:2px;
+                  classDef thin fill:#e2e8f0,stroke:#94a3b8,stroke-width:1px;
+                  class TS deep
+                  class CP,S thin
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">One deep module, helpers absorbed, schema moved to LLM seam</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm"><span class="font-semibold">Problem.</span> The dispatcher in <code>engine.sh</code> is a bare case statement — removing it just moves the case into the run loop.</p>
+            <p class="text-sm"><span class="font-semibold">Solution.</span> Merge result helpers into <code>tools.sh</code>, move schema generation to <code>chat-parser.sh</code>, inline the dispatcher into <code>run-loop.sh</code>.</p>
+            <div class="text-sm space-y-1">
+              <p class="font-semibold mt-3">Wins</p>
+              <ul class="list-disc list-inside text-xs space-y-1 text-slate-600">
+                <li>Leverage: one interface (<code>baish_tool_execute</code>) instead of bouncing between two files</li>
+                <li>Locality: schemas live at the LLM interface seam, not in the execution path</li>
+                <li>Deletion test: the dispatcher fails — its removal moves complexity, doesn't eliminate it</li>
+                <li>Delete 1 shallow file (109 lines), spread helpers where they're consumed</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 2: Command palette duplicates skill discovery -->
+        <article class="card bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold text-slate-800">Skill listing leaks across the palette seam</h2>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="text-sm font-mono text-slate-600 space-y-0.5">
+            <div><code>lib/agent/commands.sh</code> — palette embeds its own skill directory scanning</div>
+            <div><code>lib/agent/skills.sh</code> — skill loading + resolve</div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6 diagram-box">
+            <!-- Before -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</p>
+              <pre class="mermaid">
+                flowchart LR
+                  PAL[Ctrl+G palette<br/>commands.sh] -.-> SCAN1[scan .baish/skills/]
+                  SL[baish_skill_load<br/>skills.sh] -.-> SCAN2[scan .baish/skills/]
+
+                  classDef leaky fill:#fef2f2,stroke:#dc2626,stroke-width:1px;
+                  classDef normal fill:#f8fafc,stroke:#64748b,stroke-width:1px;
+                  class SCAN1,SCAN2 leaky
+                  class PAL,SL normal
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">Two modules scan the same directories — same glob, same override logic</p>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After</p>
+              <pre class="mermaid">
+                flowchart LR
+                  PAL[Ctrl+G palette<br/>commands.sh] --> SL[skills.sh]
+                  PAL --> LIST[baish_skill_list]
+
+                  classDef deep fill:#0f172a,color:#fff,stroke-width:2px;
+                  classDef normal fill:#f8fafc,stroke:#64748b,stroke-width:1px;
+                  class SL deep
+                  class PAL,LIST normal
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">One module owns skill discovery; callers cross the seam once</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm"><span class="font-semibold">Problem.</span> The Ctrl+G palette re-discovers skill directories using the same project-local/user-global override logic as <code>skills.sh</code> — duplicated behaviour, two places to update.</p>
+            <p class="text-sm"><span class="font-semibold">Solution.</span> Add a <code>baish_skill_list</code> function to <code>skills.sh</code> and call it from the palette.</p>
+            <div class="text-sm space-y-1">
+              <p class="font-semibold mt-3">Wins</p>
+              <ul class="list-disc list-inside text-xs space-y-1 text-slate-600">
+                <li>Locality: one place owns directory scanning and override precedence</li>
+                <li>Interface shrinks: palette crosses one seam instead of reimplementing the same logic</li>
+                <li>Tests: <code>baish_skill_list</code> is testable independently of the palette UI</li>
+                <li>Future skill sources (config-based, remote) change one module, not two</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 3: Copilot dual routing in one function -->
+        <article class="card bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold text-slate-800">Split Copilot's two chat formats behind a routing seam</h2>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">in-process</span>
+            </div>
+          </div>
+
+          <div class="text-sm font-mono text-slate-600 space-y-0.5">
+            <div><code>lib/providers/copilot.sh</code> — 460-line provider with two API formats</div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6 diagram-box">
+            <!-- Before -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</p>
+              <pre class="mermaid">
+                flowchart TB
+                  ENTRY[provider_copilot_chat] --> REFRESH[token refresh]
+                  REFRESH --> SINGLE[_copilot_chat_single]
+                  SINGLE --> BRANCH{if gpt-5*}
+                  BRANCH -- yes --> RESP[Responses API<br/>payload + parse]
+                  BRANCH -- no --> CC[Chat Completions<br/>payload + parse]
+
+                  classDef busy fill:#fefce8,stroke:#ca8a04,stroke-width:1px;
+                  class SINGLE busy
+                  classDef normal fill:#f8fafc,stroke:#64748b,stroke-width:1px;
+                  class ENTRY,REFRESH,BRANCH,RESP,CC normal
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">One 150-line function holds two full chat implementations</p>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After</p>
+              <pre class="mermaid">
+                flowchart TB
+                  ENTRY[provider_copilot_chat] --> REFRESH[token refresh]
+                  REFRESH --> ROUTE{model prefix}
+                  ROUTE -- gpt-5* --> RESP[_copilot_chat_responses]
+                  ROUTE -- other --> CC[_copilot_chat_completions]
+
+                  classDef deep fill:#0f172a,color:#fff,stroke-width:2px;
+                  classDef normal fill:#f8fafc,stroke:#64748b,stroke-width:1px;
+                  class RESP,CC normal
+                  class ENTRY deep
+              </pre>
+              <p class="text-xs text-slate-500 mt-2 text-center">Routing seam isolates format; each adapter is independently testable</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm"><span class="font-semibold">Problem.</span> <code>_copilot_chat_single</code> branches on model family and inlines two completely different API protocols (Responses vs Chat Completions) in the same function, making it 150+ lines with hard-to-test conditional paths.</p>
+            <p class="text-sm"><span class="font-semibold">Solution.</span> Extract <code>_copilot_chat_responses</code> and <code>_copilot_chat_completions</code> as separate functions; route at the entry point.</p>
+            <div class="text-sm space-y-1">
+              <p class="font-semibold mt-3">Wins</p>
+              <ul class="list-disc list-inside text-xs space-y-1 text-slate-600">
+                <li>Locality: each API format's payload building + response parsing is in one function</li>
+                <li>Leverage: adding a third route (e.g. Anthropic) is a new adapter, not a nested branch</li>
+                <li>Tests: each adapter tested in isolation with mock HTTP, no branching needed</li>
+                <li>Interface shrinks: the routing seam is just a model-prefix regex</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 4: OpenCodeGo Anthropic error parsing -->
+        <article class="card bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold text-slate-800">Deepen chat-parser to absorb Anthropic error formats</h2>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">ports &amp; adapters</span>
+            </div>
+          </div>
+
+          <div class="text-sm font-mono text-slate-600 space-y-0.5">
+            <div><code>lib/providers/chat-parser.sh</code> — shared HTTP response parser</div>
+            <div><code>lib/providers/opencodego.sh</code> — duplicates error parsing for Anthropic path</div>
+          </div>
+
+          <!-- Mass diagram: before/after interface size -->
+          <div class="grid grid-cols-2 gap-6 diagram-box">
+            <!-- Before -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Before</p>
+              <div class="flex flex-col items-center justify-center h-64">
+                <div class="relative w-full max-w-[220px]">
+                  <!-- chat-parser interface -->
+                  <div class="bg-slate-200 border border-slate-400 rounded h-8 flex items-center justify-center text-[10px] uppercase tracking-wider font-mono mb-1">chat-parser interface</div>
+                  <div class="bg-slate-100 border border-slate-300 rounded h-20 flex items-center justify-center text-[10px] text-slate-500 font-mono mb-4">3 functions<br/>parse_error_body<br/>build_chat_payload<br/>parse_chat_response</div>
+
+                  <!-- opencodego's duplicate -->
+                  <div class="bg-red-100 border-2 border-red-400 rounded h-8 flex items-center justify-center text-[10px] uppercase tracking-wider font-mono mb-1" style="border-style: dashed;">opencodego duplicate</div>
+                  <div class="bg-red-50 border border-red-300 rounded h-12 flex items-center justify-center text-[10px] text-red-600 font-mono">parse_anthropic_error<br/>reimplements error body parsing</div>
+
+                  <!-- arrows -->
+                  <div class="absolute -right-3 top-16 text-red-500 text-lg">↻</div>
+                </div>
+                <p class="text-xs text-slate-500 mt-3 text-center">Same pattern, different jq path — 40 lines of copy-paste</p>
+              </div>
+            </div>
+
+            <!-- After -->
+            <div class="rounded-lg border border-slate-200 bg-white p-3">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">After</p>
+              <div class="flex flex-col items-center justify-center h-64">
+                <div class="w-full max-w-[220px]">
+                  <div class="bg-emerald-700 rounded h-8 flex items-center justify-center text-[10px] uppercase tracking-wider font-mono text-white mb-1">chat-parser interface</div>
+                  <div class="bg-emerald-900 rounded h-24 flex items-center justify-center text-[10px] text-emerald-200 font-mono">4 functions<br/>parse_error_body<br/>build_chat_payload<br/>parse_chat_response<br/>parse_anthropic_error<br/><span class="text-emerald-400">(same fn, optional jq filter)</span></div>
+                </div>
+                <p class="text-xs text-slate-500 mt-3 text-center">One module absorbs the variant — tested once, used everywhere</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm"><span class="font-semibold">Problem.</span> <code>_opencodego_parse_anthropic_error</code> reimplements the same HTTP-error-body parsing as <code>baish_provider_parse_error_body</code> — context overflow detection, auth detection, generic fallback — just with a different jq extraction path for Anthropic's <code>{error: {message}}</code> format.</p>
+            <p class="text-sm"><span class="font-semibold">Solution.</span> Extend <code>baish_provider_parse_error_body</code> with an optional jq filter argument for the error body structure; delete the duplicate.</p>
+            <div class="text-sm space-y-1">
+              <p class="font-semibold mt-3">Wins</p>
+              <ul class="list-disc list-inside text-xs space-y-1 text-slate-600">
+                <li>Locality: error parsing logic lives exactly one place</li>
+                <li>Leverage: Anthropic provider paths (current and future) reuse the same seam</li>
+                <li>Tests: one test suite for error parsing serves all providers</li>
+                <li>Delete ~40 lines of duplicate detection logic</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <!-- CANDIDATE 5: Untested core modules (noteworthy, not primary) -->
+        <article class="card bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <div class="flex items-start justify-between">
+            <h2 class="text-xl font-bold text-slate-800">Core orchestration modules are untested</h2>
+            <div class="flex gap-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">Speculative</span>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">mock</span>
+            </div>
+          </div>
+
+          <div class="text-sm font-mono text-slate-600 space-y-0.5">
+            <div><code>lib/agent/session.sh</code> — 0 direct tests</div>
+            <div><code>lib/agent/run-loop.sh</code> — 0 direct tests</div>
+            <div><code>lib/agent/skills.sh</code> — 0 direct tests</div>
+            <div><code>lib/agent/config.sh</code> — 0 direct tests</div>
+            <div><code>lib/state.sh</code> — 0 direct tests</div>
+            <div><code>lib/tools/engine.sh</code> — 0 direct tests</div>
+            <div><code>lib/ui/completion.sh</code> — 0 direct tests</div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm"><span class="font-semibold">Noteworthy.</span> 7 of 17 source modules have no dedicated test file. The run-loop — the central orchestration module — has no tests at all. Session management, skill loading, state persistence, TAB completion, and the tool engine all go untested.</p>
+            <p class="text-sm"><span class="font-semibold">Pattern.</span> The modules with tests are either pure data transformations (<code>chat-parser.sh</code>, <code>errors.sh</code>) or provider adapters with mock HTTP. Modules whose interface is "mutate global arrays and return nothing" (<code>session.sh</code>) or "drive a loop" (<code>run-loop.sh</code>) are harder to test — their current interface offers no seam for substitution.</p>
+            <p class="text-sm"><span class="font-semibold">ADR conflict.</span> Not a refactoring candidate — a test coverage gap. Worth exploring after the candidates above are addressed, since each deepening candidate narrows the untested surface.</p>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- TOP RECOMMENDATION -->
+      <section id="top-recommendation" class="bg-white rounded-xl border-2 border-emerald-600 p-6 space-y-3">
+        <h2 class="text-2xl font-bold text-emerald-800">Top recommendation</h2>
+        <p class="text-lg font-semibold"><a href="#candidates" class="text-emerald-700 underline decoration-emerald-300 hover:decoration-emerald-600">Collapse the tool engine dispatcher</a></p>
+        <p class="text-sm text-slate-600">It's the shallowest module in the codebase — a bare case statement with no interface of its own. The helpers it carries belong in <code>tools.sh</code>; the schema generation belongs in <code>chat-parser.sh</code>. Tackle this first because it's the smallest change with the clearest before/after: delete one file, absorb its logic into natural homes, and every future call site crosses one fewer module boundary.</p>
+        <div class="flex gap-4 text-xs text-slate-500 pt-1">
+          <span class="inline-flex items-center gap-1">✅ <span class="font-mono">engine.sh</span> deleted</span>
+          <span class="inline-flex items-center gap-1">✅ Helpers move to <span class="font-mono">tools.sh</span></span>
+          <span class="inline-flex items-center gap-1">✅ Schemas move to <span class="font-mono">chat-parser.sh</span></span>
+          <span class="inline-flex items-center gap-1">✅ Dispatcher inlines into <span class="font-mono">run-loop.sh</span></span>
+        </div>
+      </section>
+
+    </main>
+  </body>
+</html>
