@@ -361,6 +361,8 @@ baish_output_pipeline_cleanup() {
     BAISH_PIPELINE_TEMP_FILE=""
     BAISH_PIPELINE_CURRENT_STAGE=""
     BAISH_USE_PIPELINE=0
+    # Ensure a trailing newline after pipeline output so the next prompt starts on its own line
+    printf "\n" >&2
 }
 
 # ============================================================================
