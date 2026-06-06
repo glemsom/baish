@@ -67,11 +67,9 @@ baish_agent_run_user_message() {
         assistant_text=$(echo "${response_json}" | jq -r '.assistant_text // ""')
         tool_calls=$(echo "${response_json}" | jq -c '.tool_calls // []')
 
-        # Display assistant text (only on first round)
-        if (( BAISH_SESSION_TOOL_ROUNDS == 0 )); then
-            if [[ -n "${assistant_text}" ]]; then
-                baish_output_assistant_response "${assistant_text}"
-            fi
+        # Display assistant text (always — may be initial thinking or final answer after tool calls)
+        if [[ -n "${assistant_text}" ]]; then
+            baish_output_assistant_response "${assistant_text}"
         fi
 
         # Save assistant response
