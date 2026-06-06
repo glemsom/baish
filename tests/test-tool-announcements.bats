@@ -19,6 +19,10 @@ setup() {
     BAISH_ROOT="$(cd "$(dirname "${BATS_TEST_DIRNAME}")" && pwd)"
     export BAISH_ROOT
 
+    # Stop after one tool round to avoid infinite mock-provider loop
+    # (mock returns the same pre-programmed tool calls every round)
+    BAISH_MAX_TOOL_ROUNDS=1
+
     # Source modules
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/state.sh"

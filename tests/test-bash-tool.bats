@@ -413,6 +413,7 @@ teardown() {
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Run a command"
 
@@ -436,6 +437,7 @@ teardown() {
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Run empty command"
 
@@ -461,6 +463,7 @@ teardown() {
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Run two commands"
 

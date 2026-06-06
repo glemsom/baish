@@ -817,6 +817,7 @@ after" ]]
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Read then write"
 

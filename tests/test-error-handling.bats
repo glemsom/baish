@@ -343,5 +343,6 @@ teardown() {
     BAISH_SESSION_TOTAL_TOOL_CALLS=0
     local output
     output=$(baish_agent_run_user_message "test message" 2>&1) || true
-    [[ "${output}" == *"Hello from mock"* ]]
+    # gum format inserts ANSI codes between words, so check word-by-word
+    [[ "${output}" == *"Hello"* ]] && [[ "${output}" == *"mock"* ]]
 }

@@ -7,6 +7,9 @@ setup() {
     BAISH_ROOT="$(cd "$(dirname "${BATS_TEST_DIRNAME}")" && pwd)"
     export BAISH_ROOT
 
+    # Ensure UTF-8 locale for correct multi-byte character counting (e.g., "…")
+    export LC_ALL=C.UTF-8
+
     # Source output module in isolation (no mock provider or agent loop needed)
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/agent/output.sh"
