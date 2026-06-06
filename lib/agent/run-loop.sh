@@ -14,6 +14,10 @@ baish_agent_run_user_message() {
     baish_session_append_user_message "${user_text}"
     BAISH_SESSION_TOOL_ROUNDS=0
 
+    # Initialize the staged progress pipeline
+    baish_output_pipeline_init
+    baish_output_pipeline_stage "parse"
+
     # stderr capture file — cleaned up after the loop
     local stderr_file
     stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
@@ -38,6 +42,7 @@ baish_agent_run_user_message() {
         request_json=$(baish_session_build_request "${tools_json}")
 
         # Call the provider
+        baish_output_pipeline_stage "think"
         local response_json
         response_json=$(baish_agent_provider_chat_capture "${request_json}")
         local exit_code=$?
@@ -48,6 +53,7 @@ baish_agent_run_user_message() {
             local stderr_content
             stderr_content=$(cat "${stderr_file}" 2>/dev/null || echo "")
             baish_output_error "Provider ${BAISH_CURRENT_PROVIDER} infrastructure failure: ${stderr_content}"
+            baish_output_pipeline_stage "error"
             break
         fi
 
@@ -58,6 +64,7 @@ baish_agent_run_user_message() {
         if [[ "${ok}" != "true" ]]; then
             baish_debug_state "processing" "error" "provider error response"
             error_json=$(echo "${response_json}" | jq -c '.error // {"code": "GENERIC_ERROR", "message": "Unknown"}')
+            baish_output_pipeline_stage "error"
             if ! baish_handle_provider_error "${error_json}" "${BAISH_CURRENT_PROVIDER}"; then
                 break
             fi
@@ -87,6 +94,7 @@ baish_agent_run_user_message() {
         fi
 
         # Execute tool calls sequentially
+        baish_output_pipeline_stage "execute"
         local tc_idx
         for (( tc_idx = 0; tc_idx < tool_count; tc_idx++ )); do
             if (( BAISH_SESSION_TOTAL_TOOL_CALLS >= BAISH_MAX_TOOL_CALLS )); then
@@ -166,6 +174,11 @@ baish_agent_run_user_message() {
 
         BAISH_SESSION_TOOL_ROUNDS=$(( BAISH_SESSION_TOOL_ROUNDS + 1 ))
     done
+
+    # Mark the pipeline as done
+    baish_output_pipeline_stage "done"
+    # Clean up pipeline resources
+    baish_output_pipeline_cleanup
 
     # Clean up stderr capture file
     rm -f "${stderr_file}"

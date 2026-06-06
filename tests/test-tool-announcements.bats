@@ -278,3 +278,31 @@ teardown() {
     # Key assertion: the truncated text with … exists somewhere
     [[ "$output" == *"…"* ]]
 }
+
+# ============================================================
+# Pipeline stages complete without breaking announcement flow
+# ============================================================
+
+@test "agent loop pipeline stages complete without breaking announce flow" {
+    # Same setup as existing announcement tests
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I will read the file."
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc-pipe-read","name":"read","arguments":"{\"path\":\"announce_read.txt\"}"}]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_SESSION_TOTAL_TOOL_CALLS=0
+    BAISH_DEBUG=0
+
+    # Create test file
+    printf 'test content\n' > "${BAISH_LAUNCH_DIR}/announce_read.txt"
+
+    local output
+    output=$(baish_agent_run_user_message "Read the file" 2>/dev/null)
+
+    # Existing assertions should still pass
+    [[ "$output" == *"🔄"* ]]
+    [[ "$output" == *"✅"* ]]
+    [[ "$output" == *"📖"* ]]
+    [[ "$output" == *"announce_read.txt"* ]]
+}

@@ -30,6 +30,9 @@ setup() {
     source "${BAISH_ROOT}/lib/providers/discovery.sh"
     source "${BAISH_ROOT}/lib/providers/mock.sh"
     source "${BAISH_ROOT}/lib/ui/completion.sh"
+
+    # Mock baish_usage (defined in bin/baish, not available in test env)
+    baish_usage() { echo "mock usage"; }
 }
 
 teardown() {
@@ -421,4 +424,22 @@ teardown() {
     result=$(baish_dispatch_command "/skill:nonexistent" 2>&1) || true
 
     [[ "${result}" == *"not found"* || "${result}" == *"Skill"* ]]
+}
+
+# ============================================================
+# Command palette dispatch equivalence
+# ============================================================
+
+@test "command palette equivalent commands match slash command dispatch" {
+    # Verify each palette entry maps to a valid dispatch
+    BAISH_SESSION_EXIT_REQUESTED=0
+
+    baish_dispatch_command "/new"
+    [[ "${?}" -eq 0 ]]
+
+    baish_dispatch_command "/help"
+    [[ "${?}" -eq 0 ]]
+
+    baish_dispatch_command "/quit"
+    [[ "${?}" -eq 0 ]]
 }

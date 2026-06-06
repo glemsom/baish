@@ -2,13 +2,9 @@
 # BAISH — User Output module
 # Single deep module for all user-facing terminal output.
 # Color codes and icons are internal — callers never reach for raw escape codes or icon variables.
-
 source "${BASH_SOURCE%/*}/config.sh"
 
-# ============================================================================
 # Internal: ANSI color codes and Unicode icons
-# ============================================================================
-
 _BAISH_COLOR_RESET='\033[0m'
 _BAISH_COLOR_BOLD='\033[1m'
 _BAISH_COLOR_DIM='\033[2m'
@@ -37,10 +33,7 @@ _baish_output_tool_icon() {
     esac
 }
 
-# ============================================================================
 # Banner and prompt
-# ============================================================================
-
 baish_output_banner() {
     printf "\n${_BAISH_COLOR_BOLD}${_BAISH_COLOR_CYAN}"
     printf "  ╔══════════════════════════════════════════╗\n"
@@ -56,10 +49,7 @@ baish_output_prompt() {
     printf "${_BAISH_COLOR_GREEN}[%s/%s]${_BAISH_COLOR_RESET} > " "${provider}" "${model}"
 }
 
-# ============================================================================
 # Assistant response
-# ============================================================================
-
 baish_output_assistant_response() {
     local text="$1"
     printf "\n${_BAISH_COLOR_BOLD}BAISH:${_BAISH_COLOR_RESET}\n"
@@ -71,10 +61,7 @@ baish_output_assistant_response() {
     printf "\n"
 }
 
-# ============================================================================
 # Tool result display
-# ============================================================================
-
 # Display a tool result summary. Icon is resolved from tool name internally.
 # Args: tool_name, summary
 baish_output_tool_result() {
@@ -104,27 +91,23 @@ baish_output_bash_output() {
     local exit_code="$4"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
-
     if [[ -n "$stdout_content" ]]; then
         local stdout_indented
         stdout_indented=$(printf '%s\n' "$stdout_content" | sed 's/^/    /')
         printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_indented"
     fi
-
     if [[ -n "$stderr_content" ]]; then
         local stderr_indented
         stderr_indented=$(printf '%s\n' "$stderr_content" | sed 's/^/    /')
         printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_indented"
     fi
-
     if (( exit_code != 0 )); then
         printf "${_BAISH_COLOR_YELLOW}  %s exit code: %s${_BAISH_COLOR_RESET}\n" "${icon}" "$exit_code"
     fi
 }
 
-# ============================================================================
 # Extract a human-readable description from tool arguments JSON.
-# read/write/edit → path field, bash → command field, fallback → "?"
+# read/write/edit → path field, bash → cmd field, fallback → "?"
 # Descriptions over 100 characters are truncated with … suffix.
 _baish_output_tool_description() {
     local tool_args="$1"
@@ -137,61 +120,53 @@ _baish_output_tool_description() {
 }
 
 # Tool announcement and result (replace-in-place)
-# ============================================================================
-
 # Announce a tool call before it executes (no trailing newline, uses \r so the
 # line can be overwritten by the success/error update).
-# Args: tool_name, description (path, command, etc.)
+# Args: tool_name, desc (path, cmd, etc.)
 baish_output_tool_announce() {
     local tool_name="$1"
-    local description="$2"
+    local desc="$2"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
-    printf "\r${_BAISH_COLOR_DIM}  🔄 %s %s${_BAISH_COLOR_RESET}" "${icon}" "${description}"
+    printf "\r${_BAISH_COLOR_DIM}  🔄 %s %s${_BAISH_COLOR_RESET}" "${icon}" "${desc}"
 }
 
 # Update a tool announcement on success — overwrites the "🔄" line.
-# Args: tool_name, description
+# Args: tool_name, desc
 baish_output_tool_announce_ok() {
     local tool_name="$1"
-    local description="$2"
+    local desc="$2"
     local suffix="${3:-}"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
     if [[ -n "$suffix" ]]; then
-        printf "\r\033[K  ✅ %s %s  ${_BAISH_COLOR_DIM}%s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}" "${suffix}"
+        printf "\r\033[K  ✅ %s %s  ${_BAISH_COLOR_DIM}%s${_BAISH_COLOR_RESET}\n" "${icon}" "${desc}" "${suffix}"
     else
-        printf "\r\033[K  ✅ %s %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}"
+        printf "\r\033[K  ✅ %s %s${_BAISH_COLOR_RESET}\n" "${icon}" "${desc}"
     fi
 }
 
 # Update a tool announcement on error — overwrites the "🔄" line.
-# Args: tool_name, description, error_message
+# Args: tool_name, desc, error_message
 baish_output_tool_announce_error() {
     local tool_name="$1"
-    local description="$2"
+    local desc="$2"
     local error_msg="$3"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
-    printf "\r\033[K  ❌ %s %s — %s${_BAISH_COLOR_RESET}\n" "${icon}" "${description}" "${error_msg}"
+    printf "\r\033[K  ❌ %s %s — %s${_BAISH_COLOR_RESET}\n" "${icon}" "${desc}" "${error_msg}"
 }
 
-# ============================================================================
 # Info and error messages
-# ============================================================================
-
 baish_output_error() {
-    printf "${_BAISH_COLOR_RED}Error: %s${_BAISH_COLOR_RESET}\n" "$1" >&2
+    printf "${_BAISH_COLOR_RED}error: %s${_BAISH_COLOR_RESET}\n" "$1" >&2
 }
 
 baish_output_info() {
     printf "${_BAISH_COLOR_BLUE}%s${_BAISH_COLOR_RESET}\n" "$1"
 }
 
-# ============================================================================
 # Thinking spinner (foreground and background)
-# ============================================================================
-
 # Foreground spinner: takes a PID and shows spinner while the process is alive.
 baish_output_thinking() {
     local pid="$1"
@@ -202,19 +177,233 @@ baish_output_thinking() {
         i=$(( (i + 1) % ${#chars[@]} ))
         sleep 0.1
     done
-    printf "\r                             \r"
 }
 
 # Background spinner: runs forever, printing to stderr so it doesn't pollute stdout.
 # Should be launched as a background job: baish_output_thinking_bg &
+# Note: When BAISH_USE_PIPELINE=1, the old spinner is disabled in favor of the pipeline.
 baish_output_thinking_bg() {
     local chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=0
+    # If pipeline is active, skip the old spinner
+    if [[ -n "${BAISH_USE_PIPELINE:-}" && "${BAISH_USE_PIPELINE}" == "1" ]]; then
+        return
+    fi
     while true; do
         printf "\r${_BAISH_COLOR_CYAN}  %s thinking...${_BAISH_COLOR_RESET}" "${chars[$i]}" >&2
         i=$(( (i + 1) % ${#chars[@]} ))
         sleep 0.1
     done
+}
+
+# ── Staged Progress Pipeline ────────────────────────────────────────────────
+
+# Pipeline state variables (global, modified by pipeline functions)
+BAISH_PIPELINE_CURRENT_STAGE=""
+BAISH_PIPELINE_RENDER_PID=""
+BAISH_PIPELINE_TEMP_FILE=""
+BAISH_PIPELINE_SKIP=0
+BAISH_USE_PIPELINE=0
+
+# Pipeline stage definitions (in display order)
+_BAISH_PIPELINE_STAGES=("parse" "think" "execute" "done" "error")
+_BAISH_PIPELINE_LABELS=("Parsing..." "Reasoning..." "Executing..." "Done" "Failed")
+_BAISH_PIPELINE_EMOJIS=("🔍" "🧠" "⚙️" "✅" "❌")
+
+# Get the 0-based index of a stage name. Returns -1 for invalid stages.
+_baish_pipeline_stage_index() {
+    local stage="$1"
+    case "${stage}" in
+        parse)   echo 0 ;;
+        think)   echo 1 ;;
+        execute) echo 2 ;;
+        done)    echo 3 ;;
+        error)   echo 4 ;;
+        *)       echo -1 ;;
+    esac
+}
+
+# Initialize the staged progress pipeline.
+# Sets state variables. When BAISH_DEBUG=0 and stderr is a terminal,
+# also starts a background renderer for the pulsing animation.
+baish_output_pipeline_init() {
+    BAISH_PIPELINE_CURRENT_STAGE=""
+    BAISH_PIPELINE_RENDER_PID=""
+    BAISH_PIPELINE_TEMP_FILE=""
+
+    # Skip rendering in debug mode
+    if [[ "${BAISH_DEBUG}" == "1" ]]; then
+        BAISH_PIPELINE_SKIP=1
+        BAISH_USE_PIPELINE=0
+        return 0
+    fi
+
+    BAISH_PIPELINE_SKIP=0
+    BAISH_USE_PIPELINE=1
+
+    # Only start the background renderer if stderr is a terminal
+    if [[ -t 2 ]]; then
+        # Create temp file for stage communication with background renderer
+        BAISH_PIPELINE_TEMP_FILE=$(mktemp /tmp/baish_pipeline.XXXXXX 2>/dev/null)
+        if [[ -n "${BAISH_PIPELINE_TEMP_FILE}" && -f "${BAISH_PIPELINE_TEMP_FILE}" ]]; then
+            echo "" > "${BAISH_PIPELINE_TEMP_FILE}"
+            # Start background renderer
+            _baish_output_pipeline_renderer &
+            BAISH_PIPELINE_RENDER_PID=$!
+        fi
+    fi
+}
+
+# Advance the pipeline to a named stage.
+# Valid stages: parse, think, execute, done, error
+# Updates BAISH_PIPELINE_CURRENT_STAGE and renders the pipeline to stderr.
+# NOTE: Must NOT be called inside a subshell ($(...)) to ensure the global
+# state variable is updated. Call it directly, then capture output separately.
+baish_output_pipeline_stage() {
+    local stage="$1"
+
+    # Validate stage name
+    local idx
+    idx=$(_baish_pipeline_stage_index "${stage}")
+    if (( idx < 0 )); then
+        baish_output_error "Invalid pipeline stage: ${stage}" >&2
+        return 1
+    fi
+
+    BAISH_PIPELINE_CURRENT_STAGE="${stage}"
+
+    # If skipping, just update state and return
+    if [[ "${BAISH_PIPELINE_SKIP}" == "1" ]]; then
+        return 0
+    fi
+
+    # Write stage to temp file for background renderer
+    if [[ -n "${BAISH_PIPELINE_TEMP_FILE}" ]]; then
+        printf '%s' "${stage}" > "${BAISH_PIPELINE_TEMP_FILE}"
+    fi
+
+    # Render the pipeline to stderr (immediate one-shot render)
+    _baish_output_pipeline_render "${stage}" >&2
+}
+
+# Render the pipeline line for a given stage.
+# Shows: 🔍 Parsing...  ▸  🧠 Reasoning...  ▸  ⚙️  Executing...  ▸  ✅ Done
+# Active stage is bold+green, completed stages are normal, pending are dim.
+# On error: previous stages normal, ❌ Failed in bold+red.
+_baish_output_pipeline_render() {
+    local current_stage="$1"
+    local output=""
+    local current_idx
+    current_idx=$(_baish_pipeline_stage_index "${current_stage}")
+    local i
+    local first=true
+
+    for i in "${!_BAISH_PIPELINE_STAGES[@]}"; do
+        local s="${_BAISH_PIPELINE_STAGES[$i]}"
+        local label="${_BAISH_PIPELINE_LABELS[$i]}"
+        local emoji="${_BAISH_PIPELINE_EMOJIS[$i]}"
+        local idx=$i
+
+        # Add ▸ separator between stages
+        if [[ "${first}" == "true" ]]; then
+            first=false
+        else
+            output+="  ▸  "
+        fi
+
+        if [[ "${s}" == "${current_stage}" ]]; then
+            # Active stage: bold + green
+            output+="\033[1;32m${emoji} ${label}\033[0m"
+        elif (( idx < current_idx )); then
+            # Completed stage: normal
+            output+="${emoji} ${label}"
+        else
+            # Pending stage: dim
+            output+="\033[2m${emoji} ${label}\033[0m"
+        fi
+    done
+
+    printf "\r\033[K%s" "${output}"
+}
+
+# Background pipeline renderer.
+# Reads the current stage from the temp file in a loop and re-renders
+# the pipeline with a pulsing effect on the active stage.
+# The pulse alternates between bold+bright-green and bold+dim-green.
+# Exits automatically on terminal stages (done/error).
+_baish_output_pipeline_renderer() {
+    local pulse=0
+
+    while true; do
+        local stage=""
+        if [[ -f "${BAISH_PIPELINE_TEMP_FILE}" ]]; then
+            stage=$(cat "${BAISH_PIPELINE_TEMP_FILE}" 2>/dev/null || echo "")
+        fi
+
+        if [[ -z "${stage}" ]]; then
+            sleep 0.2
+            continue
+        fi
+
+        local current_idx
+        current_idx=$(_baish_pipeline_stage_index "${stage}")
+        local output=""
+        local first=true
+        local i
+
+        for i in "${!_BAISH_PIPELINE_STAGES[@]}"; do
+            local s="${_BAISH_PIPELINE_STAGES[$i]}"
+            local label="${_BAISH_PIPELINE_LABELS[$i]}"
+            local emoji="${_BAISH_PIPELINE_EMOJIS[$i]}"
+            local idx=$i
+
+            if [[ "${first}" == "true" ]]; then
+                first=false
+            else
+                output+="  ▸  "
+            fi
+
+            if [[ "${s}" == "${stage}" ]]; then
+                # Active stage: pulse between bold+bright-green and bold+dim-green
+                if (( pulse % 2 == 0 )); then
+                    output+="\033[1;32m${emoji} ${label}\033[0m"
+                else
+                    output+="\033[1;2m\033[32m${emoji} ${label}\033[0m"
+                fi
+            elif (( idx < current_idx )); then
+                # Completed: normal
+                output+="${emoji} ${label}"
+            else
+                # Pending: dim
+                output+="\033[2m${emoji} ${label}\033[0m"
+            fi
+        done
+
+        printf "\r\033[K%s" "${output}"
+        pulse=$(( (pulse + 1) % 4 ))
+        sleep 0.3
+
+        # If we've reached a terminal stage (done/error), render final and exit
+        if [[ "${stage}" == "done" || "${stage}" == "error" ]]; then
+            _baish_output_pipeline_render "${stage}"
+            break
+        fi
+    done
+}
+
+# Clean up pipeline resources: kill background renderer, remove temp file.
+baish_output_pipeline_cleanup() {
+    if [[ -n "${BAISH_PIPELINE_RENDER_PID:-}" ]]; then
+        kill "${BAISH_PIPELINE_RENDER_PID}" 2>/dev/null || true
+        wait "${BAISH_PIPELINE_RENDER_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${BAISH_PIPELINE_TEMP_FILE:-}" && -f "${BAISH_PIPELINE_TEMP_FILE}" ]]; then
+        rm -f "${BAISH_PIPELINE_TEMP_FILE}" 2>/dev/null || true
+    fi
+    BAISH_PIPELINE_RENDER_PID=""
+    BAISH_PIPELINE_TEMP_FILE=""
+    BAISH_PIPELINE_CURRENT_STAGE=""
+    BAISH_USE_PIPELINE=0
 }
 
 # ============================================================================

@@ -90,6 +90,8 @@ baish_tab_complete() {
 # work inside 'read -e' prompts.
 baish_setup_completion() {
     bind -x '"\\C-i": baish_tab_complete' 2>/dev/null || true
+    # Ctrl+G opens the emoji command palette
+    bind -x '"\\C-g": baish_command_palette' 2>/dev/null || true
 }
 
 # Complete input for readline. Called by bash's completion system.
