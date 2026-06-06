@@ -287,43 +287,18 @@ baish_output_pipeline_stage() {
 }
 
 # Render the pipeline line for a given stage.
-# Shows: 🔍 Parsing...  ▸  🧠 Reasoning...  ▸  ⚙️  Executing...  ▸  ✅ Done
-# Active stage is bold+green, completed stages are normal, pending are dim.
-# On error: previous stages normal, ❌ Failed in bold+red.
+# Shows only the active stage as a single badge, e.g., emoji + label.
+# Active stage is bold+green. Terminal stages (done/error) show final state.
 _baish_output_pipeline_render() {
     local current_stage="$1"
-    local output=""
     local current_idx
     current_idx=$(_baish_pipeline_stage_index "${current_stage}")
-    local i
-    local first=true
-
-    for i in "${!_BAISH_PIPELINE_STAGES[@]}"; do
-        local s="${_BAISH_PIPELINE_STAGES[$i]}"
-        local label="${_BAISH_PIPELINE_LABELS[$i]}"
-        local emoji="${_BAISH_PIPELINE_EMOJIS[$i]}"
-        local idx=$i
-
-        # Add ▸ separator between stages
-        if [[ "${first}" == "true" ]]; then
-            first=false
-        else
-            output+="  ▸  "
-        fi
-
-        if [[ "${s}" == "${current_stage}" ]]; then
-            # Active stage: bold + green
-            output+="\033[1;32m${emoji} ${label}\033[0m"
-        elif (( idx < current_idx )); then
-            # Completed stage: normal
-            output+="${emoji} ${label}"
-        else
-            # Pending stage: dim
-            output+="\033[2m${emoji} ${label}\033[0m"
-        fi
-    done
-
-    printf "\r\033[K%s" "${output}"
+    if (( current_idx < 0 )); then
+        return 1
+    fi
+    local label="${_BAISH_PIPELINE_LABELS[$current_idx]}"
+    local emoji="${_BAISH_PIPELINE_EMOJIS[$current_idx]}"
+    printf "\r\033[K\033[1;32m%s %s\033[0m" "${emoji}" "${label}"
 }
 
 # Background pipeline renderer.
@@ -347,38 +322,20 @@ _baish_output_pipeline_renderer() {
 
         local current_idx
         current_idx=$(_baish_pipeline_stage_index "${stage}")
-        local output=""
-        local first=true
-        local i
+        if (( current_idx < 0 )); then
+            sleep 0.2
+            continue
+        fi
 
-        for i in "${!_BAISH_PIPELINE_STAGES[@]}"; do
-            local s="${_BAISH_PIPELINE_STAGES[$i]}"
-            local label="${_BAISH_PIPELINE_LABELS[$i]}"
-            local emoji="${_BAISH_PIPELINE_EMOJIS[$i]}"
-            local idx=$i
-
-            if [[ "${first}" == "true" ]]; then
-                first=false
-            else
-                output+="  ▸  "
-            fi
-
-            if [[ "${s}" == "${stage}" ]]; then
-                # Active stage: pulse between bold+bright-green and bold+dim-green
-                if (( pulse % 2 == 0 )); then
-                    output+="\033[1;32m${emoji} ${label}\033[0m"
-                else
-                    output+="\033[1;2m\033[32m${emoji} ${label}\033[0m"
-                fi
-            elif (( idx < current_idx )); then
-                # Completed: normal
-                output+="${emoji} ${label}"
-            else
-                # Pending: dim
-                output+="\033[2m${emoji} ${label}\033[0m"
-            fi
-        done
-
+        local label="${_BAISH_PIPELINE_LABELS[$current_idx]}"
+        local emoji="${_BAISH_PIPELINE_EMOJIS[$current_idx]}"
+        local output
+        # Active stage: pulse between bold+bright-green and bold+dim-green
+        if (( pulse % 2 == 0 )); then
+            output=$'\033[1;32m'"${emoji} ${label}"$'\033[0m'
+        else
+            output=$'\033[1;2m\033[32m'"${emoji} ${label}"$'\033[0m'
+        fi
         printf "\r\033[K%s" "${output}"
         pulse=$(( (pulse + 1) % 4 ))
         sleep 0.3

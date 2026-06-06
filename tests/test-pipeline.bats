@@ -83,25 +83,30 @@ setup() {
     [[ "${output}" == *"❌"* ]]
 }
 
-@test "pipeline uses ▸ separators between stages" {
+@test "pipeline shows only the active stage badge" {
     baish_output_pipeline_init
     local output
     output=$(baish_output_pipeline_stage "think" 2>&1) || true
-    [[ "${output}" == *"▸"* ]]
+    # Should NOT contain ▸ separators — only one stage shown
+    [[ "${output}" != *"▸"* ]]
+    # Should contain Reasoning label for current stage
+    [[ "${output}" == *"Reasoning"* ]]
+    # Should NOT contain Parsing label (completed stage)
+    [[ "${output}" != *"Parsing"* ]]
 }
 
-@test "pipeline shows all stages in output" {
+@test "pipeline shows only the active stage, not all stages" {
     baish_output_pipeline_init
     local output
     output=$(baish_output_pipeline_stage "execute" 2>&1) || true
-    # Should contain 🔍 (parse) labels
-    [[ "${output}" == *"🔍"* ]]
-    # Should contain 🧠 (think) labels
-    [[ "${output}" == *"🧠"* ]]
-    # Should contain ⚙️ (execute) labels
+    # Should contain ⚙️ (execute) for current stage
     [[ "${output}" == *"⚙️"* ]]
-    # Should contain ✅ (done) labels
-    [[ "${output}" == *"✅"* ]]
+    # Should NOT contain 🔍 (parse) for completed stage
+    [[ "${output}" != *"🔍"* ]]
+    # Should NOT contain 🧠 (think) for completed stage
+    [[ "${output}" != *"🧠"* ]]
+    # Should NOT contain ✅ (done) for pending stage
+    [[ "${output}" != *"✅"* ]]
 }
 
 @test "BAISH_DEBUG=1 suppresses pipeline rendering" {
