@@ -183,6 +183,9 @@ provider_kilo_chat() {
     baish_debug_http "kilo" "POST" "${KILO_GATEWAY_URL}/chat/completions" "" "sending request"
 
     local response
+    # NOTE: curl stderr (connection errors, TLS failures, etc.) intentionally
+    # flows to the caller's stderr, where it is captured by the run-loop's
+    # stderr capture file for diagnostics.
     response=$(curl -s -w "\n%{http_code}" \
         --connect-timeout 10 \
         --max-time 120 \
@@ -191,7 +194,7 @@ provider_kilo_chat() {
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
         -d "${payload}" \
-        "${KILO_GATEWAY_URL}/chat/completions" 2>/dev/null)
+        "${KILO_GATEWAY_URL}/chat/completions")
 
     local http_code body
     http_code=$(echo "${response}" | tail -1)

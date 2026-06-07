@@ -215,6 +215,9 @@ _opencodego_chat_openai() {
     baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/chat/completions" "" "sending request"
 
     local response
+    # NOTE: curl stderr (connection errors, TLS failures, etc.) intentionally
+    # flows to the caller's stderr, where it is captured by the run-loop's
+    # stderr capture file for diagnostics.
     response=$(curl -s -w "\n%{http_code}" \
         --connect-timeout 10 \
         --max-time 120 \
@@ -223,7 +226,7 @@ _opencodego_chat_openai() {
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
         -d "${payload}" \
-        "${OPENCODEGO_BASE_URL}/chat/completions" 2>/dev/null)
+        "${OPENCODEGO_BASE_URL}/chat/completions")
 
     local http_code body
     http_code=$(echo "${response}" | tail -1)
@@ -261,6 +264,9 @@ _opencodego_chat_anthropic() {
     baish_debug_http "opencodego" "POST" "${OPENCODEGO_BASE_URL}/messages" "" "sending request"
 
     local response
+    # NOTE: curl stderr (connection errors, TLS failures, etc.) intentionally
+    # flows to the caller's stderr, where it is captured by the run-loop's
+    # stderr capture file for diagnostics.
     response=$(curl -s -w "\n%{http_code}" \
         --connect-timeout 10 \
         --max-time 120 \
@@ -270,7 +276,7 @@ _opencodego_chat_anthropic() {
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
         -d "${payload}" \
-        "${OPENCODEGO_BASE_URL}/messages" 2>/dev/null)
+        "${OPENCODEGO_BASE_URL}/messages")
 
     local http_code body
     http_code=$(echo "${response}" | tail -1)
@@ -403,6 +409,14 @@ _opencodego_parse_anthropic_response() {
 _opencodego_parse_anthropic_error() {
     local http_code="$1"
     local body="$2"
+
+    # Infrastructure failure: no HTTP response received
+    if [[ -z "${http_code}" || "${http_code}" == "000" || ! "${http_code}" =~ ^[0-9]+$ ]]; then
+        jq -n \
+            --arg msg "OpenCodeGo: Network error — could not reach the API server. Check your connection and try again." \
+            '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+        return 0
+    fi
 
     local error_msg
     error_msg=$(echo "${body}" | jq -r '.error.message // .message // "Unknown error"' 2>/dev/null)

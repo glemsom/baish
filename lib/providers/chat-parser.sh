@@ -27,6 +27,18 @@ baish_provider_parse_error_body() {
         return 0
     fi
 
+    # Infrastructure failure: no HTTP response received (curl was unable
+    # to connect — DNS failure, connection refused, timeout, etc.).
+    # The http_code is empty, 000, or a curl error message when curl never
+    # got a valid HTTP response line.
+    if [[ -z "${http_code}" || "${http_code}" == "000" || ! "${http_code}" =~ ^[0-9]+$ ]]; then
+        jq -n \
+            --arg code "GENERIC_ERROR" \
+            --arg msg "${provider_prefix}Network error — could not reach the API server. Check your connection and try again." \
+            '{"ok": false, "error": {"code": $code, "message": $msg}}'
+        return 0
+    fi
+
     # Extract error message using the provided jq filter
     local error_msg
     error_msg=$(echo "${body}" | jq -r "${error_msg_jq} // \"Unknown error\"" 2>/dev/null)

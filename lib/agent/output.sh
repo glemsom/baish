@@ -296,6 +296,15 @@ baish_output_pipeline_stage() {
 
     # Render the pipeline to stderr (immediate one-shot render)
     _baish_output_pipeline_render "${stage}" >&2
+
+    # Terminal stages get a trailing newline so subsequent stderr output
+    # (e.g. baish_output_error) doesn't concatenate onto the same line.
+    # When the background renderer is active, its stray final render may
+    # appear on the next line briefly but will be overwritten by the
+    # "done" stage's \r\033[K prefix.
+    if [[ "${stage}" == "done" || "${stage}" == "error" ]]; then
+        printf '\n' >&2
+    fi
 }
 
 # Render the pipeline line for a given stage.
