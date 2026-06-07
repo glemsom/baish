@@ -15,6 +15,237 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/output.sh"
 }
 
+# ── Banner ────────────────────────────────────────────────────────────
+
+@test "baish_output_banner prints BAISH title and help text" {
+    local output
+    output=$(baish_output_banner)
+
+    # Contains the BAISH title
+    [[ "$output" == *"BAISH — Bash AI Shell"* ]]
+
+    # Contains the help hint
+    [[ "$output" == *"Type a message or /help for commands"* ]]
+
+    # Contains box drawing characters (top border)
+    [[ "$output" == *"╔══════════════════════════════════════════╗"* ]]
+
+    # Contains box drawing characters (bottom border)
+    [[ "$output" == *"╚══════════════════════════════════════════╝"* ]]
+
+    # Output is non-empty and starts with a newline
+    [[ -n "$output" ]]
+    [[ "$output" == $'\n'* ]]
+}
+
+# ── Prompt ────────────────────────────────────────────────────────────
+
+@test "baish_output_prompt includes provider and model in output" {
+    local output
+    output=$(baish_output_prompt "test-provider" "test-model")
+
+    # Contains provider and model in expected format
+    [[ "$output" == *"test-provider"* ]]
+    [[ "$output" == *"test-model"* ]]
+    [[ "$output" == *"["*"test-provider"*"/"*"test-model"*"]"* ]]
+
+    # Ends with '> ' prompt suffix
+    [[ "$output" == *"> " ]]
+
+    # Contains ANSI color codes (green reset before prompt suffix)
+    [[ "$output" == *$'\033[0m'* ]]
+}
+
+@test "baish_output_prompt handles provider and model with special chars" {
+    local output
+    output=$(baish_output_prompt "gpt-4o" "claude-3.5-sonnet")
+
+    [[ "$output" == *"gpt-4o"* ]]
+    [[ "$output" == *"claude-3.5-sonnet"* ]]
+    [[ "$output" == *"> " ]]
+}
+
+# ── Readline prompt ────────────────────────────────────────────────────
+
+@test "baish_output_readline_prompt wraps ANSI escapes in \\001/\\002 markers" {
+    local output
+    output=$(baish_output_readline_prompt "provider" "model")
+
+    # Contains \001 (start of non-printing chars for readline)
+    [[ "$output" == *$'\001'* ]]
+
+    # Contains \002 (end of non-printing chars for readline)
+    [[ "$output" == *$'\002'* ]]
+
+    # Contains provider/model in brackets
+    [[ "$output" == *"[provider/model]"* ]]
+
+    # Ends with ' > ' suffix
+    [[ "$output" == *" > " ]]
+}
+
+@test "baish_output_readline_prompt properly escapes green color for readline" {
+    local output
+    output=$(baish_output_readline_prompt "my-provider" "my-model")
+
+    # The ANSI green code should be wrapped in \001/\002
+    # Pattern: \001\033[32m\002[my-provider/my-model]\001\033[0m\002 >
+    [[ "$output" == *$'\001\033[32m\002'* ]]
+    [[ "$output" == *$'\001\033[0m\002'* ]]
+}
+
+# ── Tool result ───────────────────────────────────────────────────────
+
+@test "baish_output_tool_result includes tool icon and summary" {
+    local output
+    output=$(baish_output_tool_result "read" "read file.txt (42 lines)")
+
+    # Contains the correct tool icon (📖 for read)
+    [[ "$output" == *"📖"* ]]
+
+    # Contains the summary text
+    [[ "$output" == *"read file.txt (42 lines)"* ]]
+
+    # Starts with dim color code
+    [[ "$output" == $'\033[2m'* ]]
+
+    # Ends with reset + newline
+    [[ "$output" == *$'\033[0m' ]]
+}
+
+@test "baish_output_tool_result uses correct icon per tool" {
+    local read_output
+    read_output=$(baish_output_tool_result "read" "summary")
+    [[ "$read_output" == *"📖"* ]]
+
+    local write_output
+    write_output=$(baish_output_tool_result "write" "summary")
+    [[ "$write_output" == *"📝"* ]]
+
+    local edit_output
+    edit_output=$(baish_output_tool_result "edit" "summary")
+    [[ "$edit_output" == *"✏️"* ]]
+
+    local bash_output
+    bash_output=$(baish_output_tool_result "bash" "summary")
+    [[ "$bash_output" == *"⚙️"* ]]
+
+    local unknown_output
+    unknown_output=$(baish_output_tool_result "some_other" "summary")
+    [[ "$unknown_output" == *"🔧"* ]]
+}
+
+@test "baish_output_tool_result has trailing newline" {
+    local tmpfile
+    tmpfile=$(mktemp)
+    baish_output_tool_result "read" "summary" > "$tmpfile"
+    local last_char
+    last_char=$(tail -c 1 "$tmpfile" | od -An -tx1 | tr -d ' ')
+    rm -f "$tmpfile"
+    [[ "$last_char" == "0a" ]]
+}
+
+# ── Tool error ─────────────────────────────────────────────────────────
+
+@test "baish_output_tool_error includes ❌ icon, tool name, and error message" {
+    local output
+    output=$(baish_output_tool_error "read" "FILE_NOT_FOUND")
+
+    # Contains the ❌ (error) icon
+    [[ "$output" == *"❌"* ]]
+
+    # Contains the tool name
+    [[ "$output" == *"read"* ]]
+
+    # Contains the error message
+    [[ "$output" == *"FILE_NOT_FOUND"* ]]
+
+    # Starts with dim color code
+    [[ "$output" == $'\033[2m'* ]]
+
+    # Ends with reset + newline
+    [[ "$output" == *$'\033[0m' ]]
+
+    # Format is "  ❌ tool_name: error_msg"
+    [[ "$output" == *"❌ read: FILE_NOT_FOUND"* ]]
+}
+
+@test "baish_output_tool_error has trailing newline" {
+    local tmpfile
+    tmpfile=$(mktemp)
+    baish_output_tool_error "write" "PERMISSION_DENIED" > "$tmpfile"
+    local last_char
+    last_char=$(tail -c 1 "$tmpfile" | od -An -tx1 | tr -d ' ')
+    rm -f "$tmpfile"
+    [[ "$last_char" == "0a" ]]
+}
+
+@test "baish_output_tool_error handles errors with spaces and special chars" {
+    local output
+    output=$(baish_output_tool_error "bash" "Command 'foo' not found, did you mean:")
+
+    [[ "$output" == *"❌"* ]]
+    [[ "$output" == *"bash"* ]]
+    [[ "$output" == *"Command 'foo' not found, did you mean:"* ]]
+}
+
+# ── Thinking spinner ───────────────────────────────────────────────────
+
+@test "baish_output_thinking renders spinner characters while process is alive" {
+    # Start a background sleep process
+    sleep 0.3 &
+    local pid=$!
+
+    # Run thinking with a timeout to capture output
+    # We capture the first ~200ms of spinner output
+    local tmpfile
+    tmpfile=$(mktemp)
+    baish_output_thinking "$pid" > "$tmpfile" 2>/dev/null &
+    local thinking_pid=$!
+
+    # Wait for some spinner frames to render
+    sleep 0.25
+
+    # Kill the background process and the thinking function
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    wait "$thinking_pid" 2>/dev/null || true
+
+    local output
+    output=$(cat "$tmpfile")
+    rm -f "$tmpfile"
+
+    # Output contains the "thinking..." label
+    [[ "$output" == *"thinking..."* ]]
+
+    # Output contains at least one spinner character
+    [[ "$output" == *"⠋"* || "$output" == *"⠙"* || "$output" == *"⠹"* ]]
+}
+
+@test "baish_output_thinking shows cyan color code" {
+    # Quick test that ANSI color codes are emitted
+    sleep 0.1 &
+    local pid=$!
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    baish_output_thinking "$pid" > "$tmpfile" 2>/dev/null &
+    local thinking_pid=$!
+
+    sleep 0.15
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    wait "$thinking_pid" 2>/dev/null || true
+
+    local output
+    output=$(cat "$tmpfile")
+    rm -f "$tmpfile"
+
+    # Contains cyan color escape
+    [[ "$output" == *$'\033[36m'* ]]
+    [[ "$output" == *$'\033[0m'* ]]
+}
+
 # ── Description extraction ──────────────────────────────────────────────
 
 @test "_baish_output_tool_description extracts path for read tool" {
