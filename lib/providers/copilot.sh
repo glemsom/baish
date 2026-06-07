@@ -4,7 +4,6 @@
 # OAuth device flow authentication with long-lived GitHub token persistence.
 # Short-lived Copilot runtime token (ghc_*) is refreshed lazily with 60s expiry buffer.
 # Model routing: All models → Chat Completions (/chat/completions).
-# Responses API (/responses) code is preserved but disabled until Copilot endpoint is confirmed.
 #
 # Internal state (not persisted):
 #   BAISH_COPILOT_RUNTIME_TOKEN: short-lived token
@@ -304,11 +303,7 @@ _copilot_chat_single() {
     local tools_json="$2"
     local model="${BAISH_CURRENT_MODEL}"
     local auth_header="Bearer ${BAISH_COPILOT_RUNTIME_TOKEN}"
-    local url response
-
-    # All models use Chat Completions API (the Responses API endpoint
-    # at api.githubcopilot.com/responses is not yet confirmed working).
-    url="https://api.githubcopilot.com/chat/completions"
+    local response
 
     # Build Chat Completions payload via shared parser
     local payload
@@ -323,7 +318,7 @@ _copilot_chat_single() {
         -H "Authorization: ${auth_header}" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
-        -H "Copilot-Integration-Id: vscode" \
+        -H "Copilot-Integration-Id: vscode-chat" \
         -d "${payload}" \
         "https://api.githubcopilot.com/chat/completions" 2>&1)
 

@@ -807,6 +807,72 @@ _curl_get_count() {
 }
 
 # ============================================================
+# Integration header: Copilot-Integration-Id
+# ============================================================
+
+@test "copilot chat sends vscode-chat integration header" {
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_valid_token"}' > "${auth_file}"
+
+    BAISH_CURRENT_MODEL="gpt-4o"
+    BAISH_COPILOT_RUNTIME_TOKEN="ghc_valid"
+    BAISH_COPILOT_RUNTIME_EXPIRY=$(( $(date +%s) + 600 ))
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    # Track the curl arguments to verify the integration header
+    local curl_args_file="${BAISH_STATE_DIR}/curl_args"
+    _mock_curl_capture() {
+        _curl_count
+        # Write args to file, one per line
+        printf '%s\n' "$@" > "${curl_args_file}"
+        printf '{"choices": [{"message": {"content": "header check", "tool_calls": []}}]}\n200'
+    }
+
+    curl() { _mock_curl_capture "$@"; }
+    export -f curl
+
+    local result
+    result=$(provider_copilot_chat '[]' '[]')
+
+    # Should have made 1 curl call (no token refresh needed)
+    [[ "$(_curl_get_count)" -eq 1 ]]
+
+    # The captured args should contain the header
+    grep -q "Copilot-Integration-Id: vscode-chat" "${curl_args_file}"
+
+    # And should NOT contain the old value
+    ! grep -q "Copilot-Integration-Id: vscode$" "${curl_args_file}"
+
+    local ok text
+    ok=$(echo "${result}" | jq -r '.ok')
+    text=$(echo "${result}" | jq -r '.assistant_text')
+    [[ "${ok}" == "true" ]]
+    [[ "${text}" == "header check" ]]
+}
+
+# ============================================================
+# Source cleanup: stale comments and unused variables
+# ============================================================
+
+@test "copilot source has no stale Responses API comment" {
+    local src="${BAISH_ROOT}/lib/providers/copilot.sh"
+    # The phrase "preserved but disabled" was a stale comment referencing
+    # old Responses API code that no longer exists.
+    ! grep -q "preserved but disabled" "${src}"
+}
+
+@test "copilot source has no unused url variable in _copilot_chat_single" {
+    local src="${BAISH_ROOT}/lib/providers/copilot.sh"
+    # The _copilot_chat_single function should not declare a local url variable
+    # since the URL is now hardcoded directly in the curl command.
+    # Extract the function and check for local url
+    local func_body
+    func_body=$(sed -n '/^_copilot_chat_single()/,/^}/p' "${src}")
+    ! echo "${func_body}" | grep -q "local[[:space:]]\+url"
+}
+
+# ============================================================
 # Integration: Copilot via agent loop
 # ============================================================
 
