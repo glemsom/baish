@@ -68,7 +68,7 @@ DOCKERFILE
 
     # Run BAISH non-interactively with mock provider; capture stdout only.
     # Pre-create ~/.baish/state.json to select mock provider so the
-    # interactive fzf picker is skipped.
+    # interactive picker is skipped (gum requires TTY).
     run timeout 30 docker run --rm -i \
         -e HOME=/home/baish \
         baish:test \

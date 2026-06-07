@@ -105,7 +105,7 @@ baish_provider_metadata() {
     "${metadata_fn}"
 }
 
-# Select a provider interactively using fzf
+# Select a provider interactively using gum
 # Sets BAISH_CURRENT_PROVIDER and BAISH_CURRENT_MODEL
 baish_provider_select_interactive() {
     local selectable_providers=()
@@ -137,15 +137,10 @@ baish_provider_select_interactive() {
         BAISH_CURRENT_PROVIDER="${selectable_providers[0]}"
         baish_debug "Auto-selected single provider: ${BAISH_CURRENT_PROVIDER}"
     else
-        # Use fzf to pick
+        # Use gum to pick
         local picked_label
-        picked_label=$(printf '%s\n' "${selectable_labels[@]}" | fzf \
-            --header="Select an LLM provider" \
-            --reverse \
-            --layout=reverse \
-            --border=rounded \
-            --height=40% \
-            --no-multi)
+        picked_label=$(printf '%s\n' "${selectable_labels[@]}" | gum choose \
+            --header="Select an LLM provider")
 
         if [[ -z "${picked_label}" ]]; then
             baish_output_error "No provider selected"
@@ -165,7 +160,7 @@ baish_provider_select_interactive() {
     baish_debug "Provider selected: ${BAISH_CURRENT_PROVIDER}"
 }
 
-# Select a model interactively using fzf
+# Select a model interactively using gum
 # Sets BAISH_CURRENT_MODEL
 baish_model_select_interactive() {
     local list_models_fn="provider_${BAISH_CURRENT_PROVIDER}_list_models"
@@ -190,53 +185,40 @@ baish_model_select_interactive() {
         return 0
     fi
 
-    # Check if provider has a grouped_display field (for Kilo prefix grouping)
-    local grouped_display
-    grouped_display=$(echo "${models_json}" | jq -r '.[0].group // empty')
+    # Build display items for gum choose (grouped or flat)
+    local display_options=()
+    local model_ids=()
+    local i
+    for i in $(seq 0 $((model_count - 1))); do
+        local model_id model_name group
+        model_id=$(echo "${models_json}" | jq -r ".[$i].id")
+        model_name=$(echo "${models_json}" | jq -r ".[$i].name // .id")
+        group=$(echo "${models_json}" | jq -r ".[$i].group // empty")
+        if [[ -n "${group}" ]]; then
+            display_options+=("${group}/${model_name}")
+        else
+            display_options+=("${model_name}")
+        fi
+        model_ids+=("${model_id}")
+    done
 
-    local picked_model_id
-    if [[ -n "${grouped_display}" ]]; then
-        # Grouped display: use grouped input for fzf
-        local input=""
-        local i
-        for i in $(seq 0 $((model_count - 1))); do
-            local model_id model_name group
-            model_id=$(echo "${models_json}" | jq -r ".[$i].id")
-            model_name=$(echo "${models_json}" | jq -r ".[$i].name // .id")
-            group=$(echo "${models_json}" | jq -r ".[$i].group // \"other\"")
-            input+="${group}\t${model_name}\t${model_id}\n"
-        done
+    local picked
+    picked=$(printf '%s\n' "${display_options[@]}" | gum choose \
+        --header="Select a model" \
+        --height=20)
 
-        picked_model_id=$(printf '%b' "${input}" | fzf \
-            --header="Select a model" \
-            --reverse \
-            --layout=reverse \
-            --border=rounded \
-            --height=40% \
-            --no-multi \
-            --delimiter='\t' \
-            --with-nth=1,2 \
-            --tabstop=1 \
-            --ansi | awk -F'\t' '{print $3}')
-    else
-        # Flat display
-        picked_model_id=$(echo "${models_json}" | jq -r '.[] | [.name // .id, .id] | @tsv' | fzf \
-            --header="Select a model" \
-            --reverse \
-            --layout=reverse \
-            --border=rounded \
-            --height=40% \
-            --no-multi \
-            --with-nth=1 \
-            --delimiter='\t' | awk -F'\t' '{print $2}')
-    fi
-
-    if [[ -z "${picked_model_id}" ]]; then
+    if [[ -z "${picked}" ]]; then
         baish_output_error "No model selected"
         return 1
     fi
 
-    BAISH_CURRENT_MODEL="${picked_model_id}"
+    # Map back to model ID
+    for i in "${!display_options[@]}"; do
+        if [[ "${display_options[$i]}" == "${picked}" ]]; then
+            BAISH_CURRENT_MODEL="${model_ids[$i]}"
+            break
+        fi
+    done
     baish_debug "Model selected: ${BAISH_CURRENT_MODEL}"
 }
 

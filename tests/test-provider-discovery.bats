@@ -418,7 +418,7 @@ assert_fn_exists() {
     # Mock the metadata to return selectable=true
     baish_provider_select_interactive
 
-    # Since fzf can't work in bats, when only one selectable provider exists
+    # Since gum choose can't work in non-TTY, when only one selectable provider exists
     # it should auto-select
     [[ "${BAISH_CURRENT_PROVIDER}" == "copilot" ]]
 }

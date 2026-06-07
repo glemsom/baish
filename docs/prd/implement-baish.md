@@ -10,7 +10,7 @@ As a developer working on GNU/Linux, I want a terminal-native AI coding agent th
 
 ## Solution
 
-BAISH — a Bash-first terminal AI coding agent. It provides a readline-style terminal interface with multi-provider LLM support (GitHub Copilot, Kilo Gateway, and a Mock Provider for testing), slash commands for session management, file/shell tool execution via LLM tool calls, a skills system for extending agent behavior, and path completion for file references. Everything runs in Bash with standard GNU coreutils, curl, jq, fzf, and gum.
+BAISH — a Bash-first terminal AI coding agent. It provides a readline-style terminal interface with multi-provider LLM support (GitHub Copilot, Kilo Gateway, and a Mock Provider for testing), slash commands for session management, file/shell tool execution via LLM tool calls, a skills system for extending agent behavior, and path completion for file references. Everything runs in Bash with standard GNU coreutils, curl, jq, and gum.
 
 ## User Stories
 
@@ -24,8 +24,8 @@ BAISH — a Bash-first terminal AI coding agent. It provides a readline-style te
 8. As a developer, I want TAB-completion for file paths (starting with `@`) so that I can reference files quickly without typos
 9. As a developer, I want TAB-completion for slash commands (starting with `/`) so that I can discover and invoke commands efficiently
 10. As a developer, I want to use the `/connect` command so that I can authenticate the current provider and pick a model
-11. As a developer, I want to use the `/provider` command so that I can switch providers using an fzf picker
-12. As a developer, I want to use the `/model` command so that I can switch models using an fzf picker
+11. As a developer, I want to use the `/provider` command so that I can switch providers using an interactive picker
+12. As a developer, I want to use the `/model` command so that I can switch models using an interactive picker
 13. As a developer, I want to use the `/new` command so that I can clear conversation history while keeping my provider, model, and loaded skills
 14. As a developer, I want to use the `/skill:<name>` command so that I can load project-local or user-global skills into the current session
 15. As a developer, I want to use the `/quit` or `/exit` command so that I can cleanly exit the agent
@@ -68,7 +68,7 @@ BAISH — a Bash-first terminal AI coding agent. It provides a readline-style te
 - **Kilo Gateway auth model**: API key is prompted, validated, and persisted in `~/.baish/auth/kilo.json`.
 - **Model API routing (Copilot)**: All models use Chat Completions (`/chat/completions`). The Responses API endpoint (`/responses`) is not yet confirmed working on `api.githubcopilot.com`. Code for it is preserved but disabled.
 - **Model listing (Copilot)**: Fetched dynamically from `GET /models` on `api.githubcopilot.com` using the `gho_*` token when available, falling back to a hardcoded curated list.
-- **Model listing (Kilo)**: The `/models` endpoint returns hundreds of models; results are filtered to models with `"chat"` in their features and grouped by provider prefix for fzf display. Full prefixed model IDs (e.g., `anthropic/claude-sonnet-4.5`) are stored and used as-is.
+- **Model listing (Kilo)**: The `/models` endpoint returns hundreds of models; results are filtered to models with `"chat"` in their features and grouped by provider prefix for interactive display. Full prefixed model IDs (e.g., `anthropic/claude-sonnet-4.5`) are stored and used as-is.
 - **Tool calling interface**: Tool calls are normalized to `{"id": "string", "name": "string", "arguments": "string"}` where `arguments` is a raw JSON string. Tool definitions are passed as a JSON array parameter to `provider_chat()`.
 - **Streaming**: Non-streaming only.
 - **Session state**: Message history is held in Bash arrays (in-memory only).
@@ -88,7 +88,7 @@ BAISH — a Bash-first terminal AI coding agent. It provides a readline-style te
 - **Optional auth detection**: `provider_<id>_has_env_auth()` returns exit code (0 = env auth exists).
 - **JSON handling**: `jq` exclusively. All construction via `jq -n --arg`.
 - **Mock provider**: `lib/providers/mock.sh`, `selectable: false`, for bats tests only.
-- **Dependencies**: Bash >= 5, GNU coreutils, sed, awk/gawk, grep, curl, jq, fzf, gum. Dev/test: bats.
+- **Dependencies**: Bash >= 5, GNU coreutils, sed, awk/gawk, grep, curl, jq, gum. Dev/test: bats.
 
 ## Testing Decisions
 
