@@ -527,12 +527,18 @@ teardown() {
 
     [[ "$ok" == "true" ]]
 
-    # stderr should be ≤ 65536 bytes
+    # stderr should be truncated to ≤ 65536 bytes
     local stderr_len=${#stderr}
     [[ "$stderr_len" -le 65536 ]]
+    # Verify truncation actually occurred (input was 102400 bytes)
+    [[ "$stderr_len" -lt 102400 ]]
 
     # First bytes should match the generator pattern
     [[ "$stderr" == "STDERR_PATTERN_XYZ"* ]]
+
+    # Last 100 bytes should contain the pattern (confirming content
+    # is from the command output, not truncated to empty or garbage)
+    [[ "${stderr: -100}" == *"STDERR_PATTERN_XYZ"* ]]
 }
 
 @test "bash tool truncates stdout at 64KB" {
@@ -546,10 +552,16 @@ teardown() {
 
     [[ "$ok" == "true" ]]
 
-    # stdout should be ≤ 65536 bytes
+    # stdout should be truncated to ≤ 65536 bytes
     local stdout_len=${#stdout}
     [[ "$stdout_len" -le 65536 ]]
+    # Verify truncation actually occurred (input was 102400 bytes)
+    [[ "$stdout_len" -lt 102400 ]]
 
     # First bytes should match the generator pattern
     [[ "$stdout" == "0123456789ABCDEF"* ]]
+
+    # Last 100 bytes should contain the pattern (confirming content
+    # is from the command output, not truncated to empty or garbage)
+    [[ "${stdout: -100}" == *"0123456789ABCDEF"* ]]
 }
