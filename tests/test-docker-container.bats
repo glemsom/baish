@@ -179,3 +179,56 @@ teardown() {
     [[ "${status}" -eq 0 ]]
     [[ "${output}" == "from-container-A" ]]
 }
+
+# --- Step 6: Docker-in-Docker (issue #56) ---
+
+@test "docker ps works inside container via host socket mount" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Run docker ps inside the container with the same flags the wrapper
+    # would use: --privileged + Docker socket mount + --group-add for the
+    # socket's group GID so the non-root user can access it.
+    local docker_gid
+    docker_gid="$(stat -c '%g' /var/run/docker.sock)"
+    local daemon_api_version
+    daemon_api_version="$(docker version --format '{{.Server.APIVersion}}')"
+
+    run docker run --rm --privileged \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        --group-add "${docker_gid}" \
+        -e DOCKER_API_VERSION="${daemon_api_version}" \
+        --user "$(id -u):$(id -g)" \
+        baish:test \
+        docker ps
+
+    echo "docker ps output: ${output}"
+    [[ "${status}" -eq 0 ]]
+}
+
+@test "docker-compose is available inside container" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Check if docker-compose is available as a standalone binary or as a
+    # docker CLI plugin (docker compose).
+    local docker_gid
+    docker_gid="$(stat -c '%g' /var/run/docker.sock)"
+    local daemon_api_version
+    daemon_api_version="$(docker version --format '{{.Server.APIVersion}}')"
+
+    run docker run --rm --privileged \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        --group-add "${docker_gid}" \
+        -e DOCKER_API_VERSION="${daemon_api_version}" \
+        --user "$(id -u):$(id -g)" \
+        baish:test \
+        bash -c 'docker-compose --version 2>/dev/null || docker compose version 2>/dev/null || echo "not-available"'
+
+    echo "docker-compose availability: ${output}"
+    [[ "${output}" != "not-available" ]]
+}

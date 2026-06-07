@@ -21,6 +21,10 @@ setup() {
 #!/usr/bin/env bash
 # Write raw args (no prefix) to record file for test assertions
 printf '%s\n' "$*" >> "${DOCKER_RECORD_FILE}"
+# Respond to version queries so DOCKER_API_VERSION detection works
+if [[ "$*" == version* ]]; then
+    echo "1.41"
+fi
 exit 0
 SCRIPT
     chmod +x "${FAKE_DOCKER_DIR}/docker"
@@ -92,7 +96,9 @@ docker_called_with() {
     local recorded
     recorded="$(docker_called_with)"
     echo "docker called with: ${recorded}"
-    [[ "${recorded}" == "run -it --rm --init "* ]]
+    # First call is `docker version` to detect API version, second is the
+    # actual `docker run`. Check that `docker run` args contain required flags.
+    [[ "${recorded}" == *"run -it --rm --init "* ]]
     [[ "${recorded}" == *"--user $(id -u):$(id -g)"* ]]
     [[ "${recorded}" == *"-e HOME=/home/baish"* ]]
     [[ "${recorded}" == *"baish:latest"* ]]
@@ -279,6 +285,23 @@ docker_called_with() {
     recorded="$(docker_called_with)"
     echo "docker called with: ${recorded}"
     [[ "${recorded}" == *"--privileged"* ]]
+
+    rm -rf "${workspace}"
+}
+
+# Test: baish mounts the host Docker socket for Docker-in-Docker
+@test "baish mounts host Docker socket when present" {
+    local workspace
+    workspace="$(mktemp -d)"
+
+    run baish "${workspace}"
+
+    local recorded
+    recorded="$(docker_called_with)"
+    echo "docker called with: ${recorded}"
+    [[ "${recorded}" == *"-v /var/run/docker.sock:/var/run/docker.sock"* ]]
+    [[ "${recorded}" == *"--group-add"* ]]
+    [[ "${recorded}" == *"-e DOCKER_API_VERSION="* ]]
 
     rm -rf "${workspace}"
 }

@@ -40,6 +40,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Docker Compose v2 (standalone binary) so the agent can run
+# docker-compose up for projects that use it.
+RUN curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose \
+    && chmod +x /usr/local/bin/docker-compose
+
 # Create baish user (UID will be overridden at runtime via --user)
 RUN useradd -m -s /bin/bash baish && \
     chmod 755 /home/baish
