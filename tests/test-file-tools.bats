@@ -725,7 +725,6 @@ after" ]]
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-read","name":"read","arguments":"{\"path\":\"e2e_read.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Read e2e_read.txt"
@@ -748,7 +747,6 @@ after" ]]
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-write","name":"write","arguments":"{\"path\":\"e2e_write.txt\",\"content\":\"written by agent\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Write e2e_write.txt"
@@ -770,7 +768,6 @@ after" ]]
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-edit","name":"edit","arguments":"{\"path\":\"e2e_edit.txt\",\"edits\":[{\"oldText\":\"original text\",\"newText\":\"edited text\"}]}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Edit e2e_edit.txt"
@@ -789,7 +786,6 @@ after" ]]
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-err","name":"read","arguments":"{\"path\":\"does_not_exist.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Read missing file"
@@ -816,7 +812,6 @@ after" ]]
     ]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
     BAISH_MAX_TOOL_ROUNDS=1
 
@@ -989,7 +984,6 @@ after" ]]
     BAISH_MOCK_RESPONSE="I have tools!"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     # Use a file to capture tools_json (since $() creates a subshell,
@@ -1028,7 +1022,6 @@ after" ]]
     BAISH_CURRENT_MODEL="openai/gpt-4o"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local captured_payload="${BAISH_STATE_DIR}/kilo_tools_payload.json"

@@ -6,7 +6,6 @@
 # - Bash tool: env overrides, error handling, timeout
 # - Bash tool: structured JSON responses (stdout, stderr, exit_code)
 # - Loop limits: BAISH_MAX_TOOL_ROUNDS enforcement
-# - Loop limits: BAISH_MAX_TOOL_CALLS enforcement
 # - Thinking spinner displays during LLM calls
 
 setup() {
@@ -321,7 +320,6 @@ teardown() {
     BAISH_MAX_TOOL_ROUNDS=2
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "test"
@@ -338,7 +336,6 @@ teardown() {
     BAISH_MAX_TOOL_ROUNDS=10
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "test"
@@ -347,58 +344,8 @@ teardown() {
     [[ ${BAISH_SESSION_TOOL_ROUNDS} -eq 0 ]]
 }
 
-# ============================================================
-# Loop limits — BAISH_MAX_TOOL_CALLS
-# ============================================================
-
-@test "agent loop stops after BAISH_MAX_TOOL_CALLS total calls" {
-    BAISH_CURRENT_PROVIDER="mock"
-    BAISH_CURRENT_MODEL="mock-model"
-    BAISH_MOCK_RESPONSE="call limit test"
-    # Each round returns 2 tool calls
-    BAISH_MOCK_TOOL_CALLS='[
-        {"id":"tc1","name":"bash","arguments":"{\"command\":\"echo 1\"}"},
-        {"id":"tc2","name":"bash","arguments":"{\"command\":\"echo 2\"}"}
-    ]'
-    BAISH_MAX_TOOL_ROUNDS=100
-    BAISH_MAX_TOOL_CALLS=3
-    BAISH_SESSION_MESSAGES=()
-    BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
-    BAISH_DEBUG=0
-
-    baish_agent_run_user_message "test"
-
-    # Should stop after exactly 3 tool calls (1 full round of 2 + 1 in next round)
-    [[ ${BAISH_SESSION_TOTAL_TOOL_CALLS} -eq 3 ]]
-}
-
-@test "agent loop enforces BAISH_MAX_TOOL_CALLS across multiple rounds" {
-    BAISH_CURRENT_PROVIDER="mock"
-    BAISH_CURRENT_MODEL="mock-model"
-    BAISH_MOCK_RESPONSE="multi-round test"
-    BAISH_MOCK_TOOL_CALLS='[{"id":"tc1","name":"bash","arguments":"{\"command\":\"echo x\"}"}]'
-    BAISH_MAX_TOOL_ROUNDS=100
-    BAISH_MAX_TOOL_CALLS=5
-    BAISH_SESSION_MESSAGES=()
-    BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
-    BAISH_DEBUG=0
-
-    baish_agent_run_user_message "test"
-
-    # Should stop after exactly 5 tool calls
-    [[ ${BAISH_SESSION_TOTAL_TOOL_CALLS} -eq 5 ]]
-    # Should not exceed max rounds
-    [[ ${BAISH_SESSION_TOOL_ROUNDS} -le 5 ]]
-}
-
-@test "BAISH_MAX_TOOL_CALLS default is 100" {
-    [[ "$BAISH_MAX_TOOL_CALLS" -eq 100 ]]
-}
-
-@test "BAISH_MAX_TOOL_ROUNDS default is 20" {
-    [[ "$BAISH_MAX_TOOL_ROUNDS" -eq 20 ]]
+@test "BAISH_MAX_TOOL_ROUNDS default is 50" {
+    [[ "$BAISH_MAX_TOOL_ROUNDS" -eq 50 ]]
 }
 
 # ============================================================
@@ -412,7 +359,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-bash","name":"bash","arguments":"{\"command\":\"echo hello from bash\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
     BAISH_MAX_TOOL_ROUNDS=1
 
@@ -436,7 +382,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-bash-err","name":"bash","arguments":"{\"command\":\"\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
     BAISH_MAX_TOOL_ROUNDS=1
 
@@ -462,7 +407,6 @@ teardown() {
     ]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
     BAISH_MAX_TOOL_ROUNDS=1
 

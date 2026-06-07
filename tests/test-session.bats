@@ -17,7 +17,6 @@ setup() {
     BAISH_SESSION_SKILL_NAMES=()
     BAISH_SESSION_SKILL_CONTENTS=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
 
     # Source modules under test
     source "${BAISH_ROOT}/lib/agent/config.sh"

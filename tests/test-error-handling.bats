@@ -315,7 +315,6 @@ teardown() {
     BAISH_MOCK_ERROR_CODE="CONTEXT_OVERFLOW"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     local output
     output=$(baish_agent_run_user_message "test message" 2>&1) || true
     [[ "${output}" == *"/new"* ]] || [[ "${output}" == *"context"* ]]
@@ -327,7 +326,6 @@ teardown() {
     BAISH_MOCK_ERROR_CODE="AUTH_FAILURE"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     local output
     output=$(baish_agent_run_user_message "test message" 2>&1) || true
     [[ "${output}" == *"/connect"* ]] || [[ "${output}" == *"Authentication"* ]]
@@ -340,7 +338,6 @@ teardown() {
     BAISH_MOCK_ERROR_CODE=""
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     local output
     output=$(baish_agent_run_user_message "test message" 2>&1) || true
     # gum format inserts ANSI codes between words, so check word-by-word

@@ -429,7 +429,6 @@ assert_fn_exists() {
     BAISH_MOCK_TOOL_CALLS=""
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Hello"
@@ -460,7 +459,6 @@ assert_fn_exists() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-1","name":"read","arguments":"{\"path\":\"test.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Read test.txt"

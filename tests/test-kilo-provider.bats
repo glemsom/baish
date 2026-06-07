@@ -653,7 +653,6 @@ _curl_get_count() {
     BAISH_CURRENT_MODEL="anthropic/claude-sonnet-4-20250514"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     _mock_curl_kilo_integration() {
@@ -697,7 +696,6 @@ _curl_get_count() {
     BAISH_CURRENT_MODEL="anthropic/claude-sonnet-4.5"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local payload_file="${BAISH_STATE_DIR}/integration_payload.json"

@@ -150,7 +150,6 @@ teardown() {
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_EXIT_REQUESTED=0
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0  # suppress spinner noise
 
     baish_agent_run_user_message "Test message"
@@ -179,7 +178,6 @@ teardown() {
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_EXIT_REQUESTED=0
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     baish_agent_run_user_message "Test"

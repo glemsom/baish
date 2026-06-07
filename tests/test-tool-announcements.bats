@@ -51,7 +51,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-read","name":"read","arguments":"{\"path\":\"announce_read.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -92,7 +91,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-write","name":"write","arguments":"{\"path\":\"announce_write.txt\",\"content\":\"written content\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -131,7 +129,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-edit","name":"edit","arguments":"{\"path\":\"announce_edit.txt\",\"edits\":[{\"oldText\":\"before edit\",\"newText\":\"after edit\"}]}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -167,7 +164,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-bash","name":"bash","arguments":"{\"command\":\"echo hello stdout; echo hello stderr >&2\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -209,7 +205,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-fail","name":"read","arguments":"{\"path\":\"does_not_exist.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -264,7 +259,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS="[{\"id\":\"tc-ann-trunc\",\"name\":\"bash\",\"arguments\":$(printf '%s' "$args_json" | jq -c .)}]"
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     local output
@@ -296,7 +290,6 @@ teardown() {
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-pipe-read","name":"read","arguments":"{\"path\":\"announce_read.txt\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
-    BAISH_SESSION_TOTAL_TOOL_CALLS=0
     BAISH_DEBUG=0
 
     # Create test file

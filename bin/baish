@@ -17,7 +17,6 @@ Arguments:
 
 Environment variables:
   BAISH_MAX_TOOL_ROUNDS   Max tool call rounds per message (default: 50)
-  BAISH_MAX_TOOL_CALLS    Max total tool calls per session (default: 100)
   BAISH_BASH_TIMEOUT      Shell command timeout in seconds (default: 120)
   BAISH_DEBUG             Enable debug logging: 0=off, 1=on (default: 0)
 

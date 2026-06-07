@@ -13,7 +13,6 @@ BAISH_CURRENT_MODEL=""
 # Session state
 BAISH_SESSION_EXIT_REQUESTED=0
 BAISH_SESSION_TOOL_ROUNDS=0
-BAISH_SESSION_TOTAL_TOOL_CALLS=0
 
 # Reset conversation context (keeps provider, model, skills)
 baish_session_reset_context_window() {

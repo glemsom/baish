@@ -30,11 +30,6 @@ baish_agent_run_user_message() {
             break
         fi
 
-        if (( BAISH_SESSION_TOTAL_TOOL_CALLS >= BAISH_MAX_TOOL_CALLS )); then
-            baish_output_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
-            break
-        fi
-
         # Build request with tools
         local tools_json
         tools_json=$(baish_tool_schemas)
@@ -97,11 +92,6 @@ baish_agent_run_user_message() {
         baish_output_pipeline_stage "execute"
         local tc_idx
         for (( tc_idx = 0; tc_idx < tool_count; tc_idx++ )); do
-            if (( BAISH_SESSION_TOTAL_TOOL_CALLS >= BAISH_MAX_TOOL_CALLS )); then
-                baish_output_info "Max total tool calls reached (${BAISH_MAX_TOOL_CALLS}). Stopping."
-                break 2
-            fi
-
             local tc
             tc=$(echo "${tool_calls}" | jq -c ".[$tc_idx]")
             local tool_id tool_name tool_args
@@ -169,7 +159,6 @@ baish_agent_run_user_message() {
                 baish_debug_tool "${tool_name}" "id=${tool_id}" "error: ${err_msg:-unknown}"
             fi
 
-            BAISH_SESSION_TOTAL_TOOL_CALLS=$(( BAISH_SESSION_TOTAL_TOOL_CALLS + 1 ))
         done
 
         BAISH_SESSION_TOOL_ROUNDS=$(( BAISH_SESSION_TOOL_ROUNDS + 1 ))

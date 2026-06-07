@@ -4,9 +4,6 @@
 # Maximum number of tool call rounds per user message
 BAISH_MAX_TOOL_ROUNDS="${BAISH_MAX_TOOL_ROUNDS:-50}"
 
-# Maximum total tool calls across the session
-BAISH_MAX_TOOL_CALLS="${BAISH_MAX_TOOL_CALLS:-100}"
-
 # Bash command execution timeout in seconds
 BAISH_BASH_TIMEOUT="${BAISH_BASH_TIMEOUT:-120}"
 
