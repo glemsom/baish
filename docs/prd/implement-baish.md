@@ -66,7 +66,8 @@ BAISH — a Bash-first terminal AI coding agent. It provides a readline-style te
 - **Provider encapsulation**: Model-family detection, endpoint routing, and response normalization live entirely inside the provider. The shared agent loop receives a unified `{assistant_text, tool_calls}` shape.
 - **Copilot auth model**: Long-lived GitHub token (`gho_*`) is persisted in `~/.baish/auth/copilot.json`. Short-lived Copilot runtime token (`ghc_*`) is held in a process variable, refreshed lazily inside `provider_copilot_chat()` with a 60-second expiry buffer.
 - **Kilo Gateway auth model**: API key is prompted, validated, and persisted in `~/.baish/auth/kilo.json`.
-- **Model family routing (Copilot)**: Only two families — `gpt-5*` uses the Responses API (`/responses`), everything else uses Chat Completions (`/chat/completions`). Anthropic models are not supported.
+- **Model API routing (Copilot)**: All models use Chat Completions (`/chat/completions`). The Responses API endpoint (`/responses`) is not yet confirmed working on `api.githubcopilot.com`. Code for it is preserved but disabled.
+- **Model listing (Copilot)**: Fetched dynamically from `GET /models` on `api.githubcopilot.com` using the `gho_*` token when available, falling back to a hardcoded curated list.
 - **Model listing (Kilo)**: The `/models` endpoint returns hundreds of models; results are filtered to models with `"chat"` in their features and grouped by provider prefix for fzf display. Full prefixed model IDs (e.g., `anthropic/claude-sonnet-4.5`) are stored and used as-is.
 - **Tool calling interface**: Tool calls are normalized to `{"id": "string", "name": "string", "arguments": "string"}` where `arguments` is a raw JSON string. Tool definitions are passed as a JSON array parameter to `provider_chat()`.
 - **Streaming**: Non-streaming only.

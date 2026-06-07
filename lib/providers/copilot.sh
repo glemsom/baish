@@ -3,7 +3,8 @@
 #
 # OAuth device flow authentication with long-lived GitHub token persistence.
 # Short-lived Copilot runtime token (ghc_*) is refreshed lazily with 60s expiry buffer.
-# Model routing: gpt-5* → Responses API (/v1/responses), everything else → Chat Completions (/v1/chat/completions).
+# Model routing: All models → Chat Completions (/chat/completions).
+# Responses API (/responses) code is preserved but disabled until Copilot endpoint is confirmed.
 #
 # Internal state (not persisted):
 #   BAISH_COPILOT_RUNTIME_TOKEN: short-lived token
@@ -21,7 +22,7 @@ provider_copilot_metadata() {
 
 # --- Environment auth detection ---
 provider_copilot_has_env_auth() {
-    if [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
+    if [[ -n "${COPILOT_GITHUB_TOKEN:-}" || -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
         return 0
     fi
     return 1
@@ -52,7 +53,7 @@ provider_copilot_auth() {
         --max-time 30 \
         -H "Accept: application/json" \
         -H "Content-Type: application/json" \
-        -d '{"client_id": "Iv1.b507608c826910e1","scope": "read:user"}' \
+        -d '{"client_id": "Iv1.b507a08c87ecfe98","scope": "read:user"}' \
         "https://github.com/login/device/code" 2>/dev/null)
 
     local device_code user_code verification_uri expires_in interval
@@ -96,7 +97,7 @@ provider_copilot_auth() {
             --max-time 30 \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
-            -d "{\"client_id\": \"Iv1.b507608c826910e1\",\"device_code\": \"${device_code}\",\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\"}" \
+            -d "{\"client_id\": \"Iv1.b507a08c87ecfe98\",\"device_code\": \"${device_code}\",\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\"}" \
             "https://github.com/login/oauth/access_token" 2>/dev/null)
 
         if [[ -z "${poll_response}" ]]; then
@@ -154,6 +155,12 @@ _copilot_load_github_token() {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     if [[ -f "${auth_file}" ]]; then
         jq -r '.github_token // empty' "${auth_file}" 2>/dev/null
+    elif [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]]; then
+        echo "${COPILOT_GITHUB_TOKEN}"
+    elif [[ -n "${GH_TOKEN:-}" ]]; then
+        echo "${GH_TOKEN}"
+    elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        echo "${GITHUB_TOKEN}"
     else
         echo ""
     fi
@@ -218,8 +225,55 @@ _copilot_refresh_runtime_token() {
 
 # --- Model listing ---
 provider_copilot_list_models() {
-    # Copilot doesn't expose a model listing endpoint via the runtime token API.
-    # We provide a curated list of known Copilot models.
+    # Fetch models from Copilot API (GET /models) using the runtime token (ghc_*).
+    # Falls back to hardcoded list if no auth available, token refresh fails,
+    # or the API call fails.
+    local gho_token
+    gho_token=$(_copilot_load_github_token)
+    if [[ -z "${gho_token}" ]]; then
+        baish_debug "Copilot: no GitHub token available, using hardcoded model list"
+        _copilot_output_hardcoded_models
+        return 0
+    fi
+
+    # Refresh the runtime token before calling the models endpoint
+    if ! _copilot_refresh_runtime_token; then
+        baish_debug "Copilot: runtime token refresh failed, using hardcoded model list"
+        _copilot_output_hardcoded_models
+        return 0
+    fi
+
+    local response http_code body
+    response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 15 \
+        -H "Authorization: Bearer ${BAISH_COPILOT_RUNTIME_TOKEN}" \
+        -H "Accept: application/json" \
+        -H "Copilot-Integration-Id: vscode-chat" \
+        "https://api.githubcopilot.com/models" 2>/dev/null)
+    http_code=$(echo "${response}" | tail -1)
+    body=$(echo "${response}" | sed '$d')
+
+    if [[ "${http_code}" == "200" ]] && echo "${body}" | jq -e '.data' &>/dev/null; then
+        local parsed
+        parsed=$(echo "${body}" | jq -c '
+            .data |
+            [.[] | select(.id != null) | {id: .id, name: (.name // .id)}]
+        ' 2>/dev/null)
+        if [[ -n "${parsed}" ]]; then
+            echo "${parsed}"
+            return 0
+        fi
+        baish_debug "Copilot: model list API returned empty or unparseable data array"
+    else
+        baish_debug "Copilot: model list API returned HTTP ${http_code}, falling back to hardcoded list"
+    fi
+
+    _copilot_output_hardcoded_models
+}
+
+# Internal helper: output the hardcoded model list as JSON.
+_copilot_output_hardcoded_models() {
     jq -n '[
         {"id": "gpt-5", "name": "GPT-5"},
         {"id": "gpt-5-codex", "name": "GPT-5 Codex"},
@@ -252,151 +306,41 @@ _copilot_chat_single() {
     local auth_header="Bearer ${BAISH_COPILOT_RUNTIME_TOKEN}"
     local url response
 
-    # Route based on model family
-    if [[ "${model}" == gpt-5* ]]; then
-        # Responses API for gpt-5 models
-        url="https://api.githubcopilot.com/responses"
+    # All models use Chat Completions API (the Responses API endpoint
+    # at api.githubcopilot.com/responses is not yet confirmed working).
+    url="https://api.githubcopilot.com/chat/completions"
 
-        # Convert messages format for Responses API
-        local instructions last_user_content
-        instructions=""
-        last_user_content=""
+    # Build Chat Completions payload via shared parser
+    local payload
+    payload=$(baish_provider_build_chat_payload "${model}" "${messages_json}" "${tools_json}")
 
-        # Extract system messages as instructions
-        local system_msgs
-        system_msgs=$(echo "${messages_json}" | jq -c '[.[] | select(.role == "system") | .content] | join("\n---\n")')
-        # Remove surrounding quotes from jq output
-        instructions=$(echo "${system_msgs}" | jq -r '.')
+    baish_debug "Copilot: sending to Chat Completions API (model: ${model})"
 
-        # Get the last user message content
-        last_user_content=$(echo "${messages_json}" | jq -r '[.[] | select(.role == "user")] | last | .content // empty')
+    response=$(curl -s -w "\n%{http_code}" \
+        --connect-timeout 10 \
+        --max-time 120 \
+        -X POST \
+        -H "Authorization: ${auth_header}" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -H "Copilot-Integration-Id: vscode" \
+        -d "${payload}" \
+        "https://api.githubcopilot.com/chat/completions" 2>&1)
 
-        # Build Responses API payload
-        local payload
-        if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
-            local tools_for_responses
-            tools_for_responses=$(echo "${tools_json}" | jq '
-                [.[] | {
-                    "name": .function.name,
-                    "type": "function",
-                    "description": .function.description,
-                    "parameters": .function.parameters
-                }]
-            ')
-            payload=$(jq -n \
-                --arg model "${model}" \
-                --arg input "${last_user_content}" \
-                --arg instructions "${instructions}" \
-                --argjson tools "${tools_for_responses}" \
-                '{
-                    "model": $model,
-                    "input": $input,
-                    "instructions": $instructions,
-                    "tools": $tools,
-                    "stream": false,
-                    "parallel_tool_calls": false
-                }')
-        else
-            payload=$(jq -n \
-                --arg model "${model}" \
-                --arg input "${last_user_content}" \
-                --arg instructions "${instructions}" \
-                '{
-                    "model": $model,
-                    "input": $input,
-                    "instructions": $instructions,
-                    "stream": false
-                }')
-        fi
+    local http_code body
+    http_code=$(echo "${response}" | tail -1)
+    body=$(echo "${response}" | sed '$d')
 
-        baish_debug "Copilot: sending to Responses API (model: ${model})"
-
-        response=$(curl -s -w "\n%{http_code}" \
-            --connect-timeout 10 \
-            --max-time 120 \
-            -X POST \
-            -H "Authorization: ${auth_header}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -H "Copilot-Integration-Id: vscode" \
-            -d "${payload}" \
-            "https://api.githubcopilot.com/responses" 2>/dev/null)
-
-        local http_code
-        http_code=$(echo "${response}" | tail -1)
-        local body
-        body=$(echo "${response}" | sed '$d')
-
-        if [[ -z "${body}" ]]; then
-            jq -n '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": "Empty response from Copilot Responses API"}}'
-            return 0
-        fi
-
-        if [[ "${http_code}" != "200" ]]; then
-            local error_result
-            error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
-                '.message // .error // "Unknown error"' "TOKEN_EXPIRED" "")
-            echo "${error_result}"
-            return 0
-        fi
-
-        # Parse Responses API response
-        local assistant_text
-        assistant_text=$(echo "${body}" | jq -r '.output[].content[].text // empty' 2>/dev/null)
-
-        # Check for tool calls in Responses API format
-        local tool_calls="[]"
-        if echo "${body}" | jq -e '.output[] | select(.type == "function_call")' &>/dev/null; then
-            tool_calls=$(echo "${body}" | jq '[
-                .output[] | select(.type == "function_call") | {
-                    "id": .id,
-                    "name": .name,
-                    "arguments": (.arguments | if type == "string" then . else tostring end)
-                }
-            ]')
-        fi
-
-        jq -n \
-            --arg text "${assistant_text}" \
-            --argjson tc "${tool_calls}" \
-            '{"ok": true, "assistant_text": $text, "tool_calls": $tc}'
-
-    else
-        # Chat Completions API for all other models
-        url="https://api.githubcopilot.com/chat/completions"
-
-        # Build Chat Completions payload via shared parser
-        local payload
-        payload=$(baish_provider_build_chat_payload "${model}" "${messages_json}" "${tools_json}")
-
-        baish_debug "Copilot: sending to Chat Completions API (model: ${model})"
-
-        response=$(curl -s -w "\n%{http_code}" \
-            --connect-timeout 10 \
-            --max-time 120 \
-            -X POST \
-            -H "Authorization: ${auth_header}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -H "Copilot-Integration-Id: vscode" \
-            -d "${payload}" \
-            "https://api.githubcopilot.com/chat/completions" 2>&1)
-
-        local http_code body
-        http_code=$(echo "${response}" | tail -1)
-        body=$(echo "${response}" | sed '$d')
-
-        if [[ "${http_code}" != "200" ]]; then
-            local error_result
-            error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
-                '.error.message // .message // "Unknown error"' "TOKEN_EXPIRED" "")
-            echo "${error_result}"
-            return 0
-        fi
-
-        # Delegate successful response parsing to shared parser
-        baish_provider_parse_chat_response_body "${body}"
+    if [[ "${http_code}" != "200" ]]; then
+        local error_result
+        error_result=$(baish_provider_parse_error_body "${http_code}" "${body}" \
+            '.error.message // .message // "Unknown error"' "TOKEN_EXPIRED" "Copilot: ")
+        echo "${error_result}"
+        return 0
     fi
+
+    # Delegate successful response parsing to shared parser
+    baish_provider_parse_chat_response_body "${body}"
 }
 
 # Public chat entry point with auto-reconnect on token expiry.

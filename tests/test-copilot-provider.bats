@@ -147,6 +147,10 @@ _curl_get_count() {
 }
 
 @test "copilot returns empty string when no auth file exists" {
+    # Unset env vars that _copilot_load_github_token now checks as fallback.
+    # Bats runs each test in its own subprocess, so this doesn't leak.
+    unset COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+
     local token
     token=$(_copilot_load_github_token)
 
@@ -187,6 +191,217 @@ _curl_get_count() {
     local valid
     valid=$(echo "${models}" | jq '[.[] | has("id") and has("name")] | all')
     [[ "${valid}" == "true" ]]
+}
+
+@test "copilot model list falls back to hardcoded when no auth available (no API call)" {
+    # No auth file, no env vars — should not call curl at all
+    unset COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        printf '{"data": []}\n200'
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should still return a valid model list
+    local valid
+    valid=$(echo "${models}" | jq '[.[] | has("id") and has("name")] | all')
+    [[ "${valid}" == "true" ]]
+
+    # Should not have called curl at all
+    [[ $(_curl_get_count) -eq 0 ]]
+}
+
+@test "copilot model list calls refresh then models API when auth available" {
+    # Auth file with gho_ token
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_valid_test_token"}' > "${auth_file}"
+
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        local n
+        n=$(_curl_get_count)
+        case "${n}" in
+            1)
+                # Runtime token refresh
+                printf '{"token": "ghc_test_runtime", "expires_at": %d}\n200' "$(( $(date +%s) + 600 ))"
+                ;;
+            2)
+                # Models API
+                printf '{"object": "list", "data": [{"id": "gpt-5-custom", "object": "model", "created": 1718000000, "owned_by": "system"}]}\n200'
+                ;;
+        esac
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should have made exactly 2 curl calls (refresh + models)
+    [[ $(_curl_get_count) -eq 2 ]]
+
+    # Should include the model from the API response
+    local has_custom
+    has_custom=$(echo "${models}" | jq '[.[] | select(.id == "gpt-5-custom")] | length')
+    [[ "${has_custom}" -gt 0 ]]
+
+    # Should also have valid id/name shape
+    local valid
+    valid=$(echo "${models}" | jq '[.[] | has("id") and has("name")] | all')
+    [[ "${valid}" == "true" ]]
+}
+
+@test "copilot model list falls back to hardcoded when models API returns 401" {
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_valid_test_token"}' > "${auth_file}"
+
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        local n
+        n=$(_curl_get_count)
+        case "${n}" in
+            1)
+                # Runtime token refresh succeeds
+                printf '{"token": "ghc_test_runtime", "expires_at": %d}\n200' "$(( $(date +%s) + 600 ))"
+                ;;
+            2)
+                # Models API returns 401
+                printf '{"error": "unauthorized"}\n401'
+                ;;
+        esac
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should have made 2 curl calls (refresh + models)
+    [[ $(_curl_get_count) -eq 2 ]]
+
+    # Should fall back to hardcoded list (gpt-5 should exist)
+    local has_gpt5
+    has_gpt5=$(echo "${models}" | jq '[.[] | select(.id == "gpt-5")] | length')
+    [[ "${has_gpt5}" -gt 0 ]]
+}
+
+@test "copilot model list falls back to hardcoded when models API returns empty body" {
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_valid_test_token"}' > "${auth_file}"
+
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        local n
+        n=$(_curl_get_count)
+        case "${n}" in
+            1)
+                # Runtime token refresh succeeds
+                printf '{"token": "ghc_test_runtime", "expires_at": %d}\n200' "$(( $(date +%s) + 600 ))"
+                ;;
+            2)
+                # Models API returns 200 with empty body
+                printf '\n200'
+                ;;
+        esac
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should have made 2 curl calls
+    [[ $(_curl_get_count) -eq 2 ]]
+
+    # Should fall back to hardcoded list
+    local has_gpt5
+    has_gpt5=$(echo "${models}" | jq '[.[] | select(.id == "gpt-5")] | length')
+    [[ "${has_gpt5}" -gt 0 ]]
+}
+
+@test "copilot model list falls back to hardcoded when runtime token refresh fails" {
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_invalid_token"}' > "${auth_file}"
+
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        # Return 401 for the refresh call — no models call happens
+        printf '{"message": "Bad credentials"}\n401'
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should have made only 1 curl call (refresh attempt only)
+    [[ $(_curl_get_count) -eq 1 ]]
+
+    # Should fall back to hardcoded list
+    local has_gpt5
+    has_gpt5=$(echo "${models}" | jq '[.[] | select(.id == "gpt-5")] | length')
+    [[ "${has_gpt5}" -gt 0 ]]
+}
+
+@test "copilot model list falls back to hardcoded when models API returns unparseable JSON" {
+    local auth_file="${BAISH_AUTH_DIR}/copilot.json"
+    mkdir -p "${BAISH_AUTH_DIR}"
+    echo '{"github_token": "gho_valid_test_token"}' > "${auth_file}"
+
+    echo 0 > "${CURL_CALL_COUNT_FILE}"
+
+    _mock_curl() {
+        _curl_count
+        local n
+        n=$(_curl_get_count)
+        case "${n}" in
+            1)
+                # Runtime token refresh succeeds
+                printf '{"token": "ghc_test_runtime", "expires_at": %d}\n200' "$(( $(date +%s) + 600 ))"
+                ;;
+            2)
+                # Models API returns 200 with missing .data field
+                printf '{"object": "list", "models": [{"id": "custom"}]}\n200'
+                ;;
+        esac
+    }
+
+    curl() { _mock_curl "$@"; }
+    export -f curl
+
+    local models
+    models=$(provider_copilot_list_models)
+
+    # Should have made 2 curl calls
+    [[ $(_curl_get_count) -eq 2 ]]
+
+    # Should fall back to hardcoded list (response had no .data array)
+    local has_gpt5
+    has_gpt5=$(echo "${models}" | jq '[.[] | select(.id == "gpt-5")] | length')
+    [[ "${has_gpt5}" -gt 0 ]]
 }
 
 # ============================================================
@@ -300,7 +515,7 @@ _curl_get_count() {
     [[ $(_curl_get_count) -eq 1 ]]
 }
 
-@test "copilot chat auto-reconnect works for gpt-5 models (Responses API)" {
+@test "copilot chat auto-reconnect works for gpt-5 models" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_valid_token"}' > "${auth_file}"
@@ -319,7 +534,7 @@ _curl_get_count() {
                 printf '{"token": "ghc_refreshed", "expires_at": %d}\n200' "$(( $(date +%s) + 300 ))"
                 ;;
             2)
-                printf '{"output": [{"type": "message", "content": [{"type": "text", "text": "GPT-5 response"}]}]}\n200'
+                printf '{"choices": [{"message": {"content": "GPT-5 response", "tool_calls": []}}]}\n200'
                 ;;
         esac
     }
@@ -369,7 +584,7 @@ _curl_get_count() {
     [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
 }
 
-@test "copilot detects context overflow in Responses API" {
+@test "copilot detects context overflow for gpt-5 models" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_valid_token"}' > "${auth_file}"
@@ -505,10 +720,10 @@ _curl_get_count() {
 }
 
 # ============================================================
-# Responses API response parsing (gpt-5 models)
+# Chat Completions response parsing (all models)
 # ============================================================
 
-@test "copilot chat parses Responses API response correctly for gpt-5" {
+@test "copilot chat parses response correctly for gpt-5 (via Chat Completions)" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_valid_token"}' > "${auth_file}"
@@ -519,17 +734,19 @@ _curl_get_count() {
 
     local response_body
     response_body=$(jq -n '{
-        output: [{
-            type: "message",
-            content: [{type: "text", text: "Responses API works"}]
+        choices: [{
+            message: {
+                content: "Chat Completions works for gpt-5",
+                tool_calls: []
+            }
         }]
     }')
 
-    _mock_curl_responses_response() {
+    _mock_curl_chat_response() {
         printf '%s\n200' "${response_body}"
     }
 
-    curl() { _mock_curl_responses_response "$@"; }
+    curl() { _mock_curl_chat_response "$@"; }
     export -f curl
 
     local result
@@ -540,10 +757,10 @@ _curl_get_count() {
     text=$(echo "${result}" | jq -r '.assistant_text')
 
     [[ "${ok}" == "true" ]]
-    [[ "${text}" == "Responses API works" ]]
+    [[ "${text}" == "Chat Completions works for gpt-5" ]]
 }
 
-@test "copilot chat parses Responses API tool calls for gpt-5" {
+@test "copilot chat parses tool calls for gpt-5 models" {
     local auth_file="${BAISH_AUTH_DIR}/copilot.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"github_token": "gho_valid_token"}' > "${auth_file}"
@@ -554,17 +771,26 @@ _curl_get_count() {
 
     local response_body
     response_body=$(jq -n '{
-        output: [
-            {type: "message", content: [{type: "text", text: "Let me read that file"}]},
-            {type: "function_call", id: "fc-1", name: "read", arguments: "{\"path\":\"file.txt\"}"}
-        ]
+        choices: [{
+            message: {
+                content: "Let me read that file",
+                tool_calls: [{
+                    id: "tc-1",
+                    type: "function",
+                    function: {
+                        name: "read",
+                        arguments: "{\"path\":\"file.txt\"}"
+                    }
+                }]
+            }
+        }]
     }')
 
-    _mock_curl_responses_tools() {
+    _mock_curl_chat_tools() {
         printf '%s\n200' "${response_body}"
     }
 
-    curl() { _mock_curl_responses_tools "$@"; }
+    curl() { _mock_curl_chat_tools "$@"; }
     export -f curl
 
     local result
