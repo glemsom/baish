@@ -176,8 +176,9 @@ baish_agent_run_user_message() {
 # Call provider chat, capturing output with a thinking spinner.
 # Captures stdout (response JSON) and stderr (error signals) separately.
 # Writes stderr to BAISH_CHAT_STDERR_FILE for the caller to analyze.
-# If BAISH_CHAT_STDERR_FILE is set, writes stderr there; otherwise
-# writes stderr to $stderr_file
+# Retries up to BAISH_PROVIDER_RETRY_MAX times on transient failures
+# (infrastructure exit codes and GENERIC_ERROR responses) with
+# BAISH_PROVIDER_RETRY_DELAY seconds between attempts.
 baish_agent_provider_chat_capture() {
     local request_json="$1"
 
@@ -190,6 +191,11 @@ baish_agent_provider_chat_capture() {
 
     # Use a persistent temp file so stderr survives the subshell
     local stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
+    local chat_fn="provider_${BAISH_CURRENT_PROVIDER}_chat"
+
+    local max_retries="${BAISH_PROVIDER_RETRY_MAX:-5}"
+    local retry_delay="${BAISH_PROVIDER_RETRY_DELAY:-1}"
+    local attempt result exit_code
 
     # Show thinking spinner in background (only if stderr is a terminal)
     local spinner_pid=""
@@ -198,11 +204,47 @@ baish_agent_provider_chat_capture() {
         spinner_pid=$!
     fi
 
-    # Call provider chat function directly, capturing stderr to file
-    local chat_fn="provider_${BAISH_CURRENT_PROVIDER}_chat"
-    local result
-    result=$(${chat_fn} "${messages}" "${tools_json}" 2>"${stderr_file}")
-    local exit_code=$?
+    for (( attempt = 1; attempt <= max_retries; attempt++ )); do
+        # Call provider chat function directly, capturing stderr to file
+        result=$(${chat_fn} "${messages}" "${tools_json}" 2>"${stderr_file}")
+        exit_code=$?
+
+        # Success: exit code 0 and response is ok
+        if (( exit_code == 0 )); then
+            local ok error_code
+            ok=$(echo "${result}" | jq -r '.ok // false')
+            error_code=$(echo "${result}" | jq -r '.error.code // ""')
+
+            if [[ "${ok}" == "true" ]]; then
+                # Success — kill spinner, report, return
+                if [[ -n "${spinner_pid}" ]]; then
+                    kill "${spinner_pid}" 2>/dev/null
+                    wait "${spinner_pid}" 2>/dev/null
+                    printf "\r\033[K" >&2
+                fi
+                baish_debug_http "${BAISH_CURRENT_PROVIDER}" "POST" "chat" "200" "response received"
+                echo "${result}"
+                return 0
+            fi
+
+            # Only retry GENERIC_ERROR (network/transient issues).
+            # Auth failures, context overflow, token expiry are permanent
+            # and should propagate immediately without retry.
+            if [[ "${error_code}" != "GENERIC_ERROR" ]]; then
+                break
+            fi
+
+            baish_debug "Provider ${BAISH_CURRENT_PROVIDER} GENERIC_ERROR (attempt ${attempt}/${max_retries}), retrying in ${retry_delay}s..."
+        else
+            # Infrastructure failure (curl crash, DNS, etc.) — retryable
+            baish_debug "Provider ${BAISH_CURRENT_PROVIDER} infra failure exit ${exit_code} (attempt ${attempt}/${max_retries}), retrying in ${retry_delay}s..."
+        fi
+
+        # Don't sleep after the last attempt
+        if (( attempt < max_retries )); then
+            sleep "${retry_delay}"
+        fi
+    done
 
     # Kill spinner and clear the line completely
     if [[ -n "${spinner_pid}" ]]; then
@@ -211,12 +253,13 @@ baish_agent_provider_chat_capture() {
         printf "\r\033[K" >&2
     fi
 
+    # All retries exhausted — propagate the last failure
     if (( exit_code != 0 )); then
-        baish_debug_http "${BAISH_CURRENT_PROVIDER}" "POST" "chat" "${exit_code}" "error"
+        baish_debug_http "${BAISH_CURRENT_PROVIDER}" "POST" "chat" "${exit_code}" "error (after ${max_retries} retries)"
         return "${exit_code}"
     fi
 
-    baish_debug_http "${BAISH_CURRENT_PROVIDER}" "POST" "chat" "200" "response received"
+    baish_debug_http "${BAISH_CURRENT_PROVIDER}" "POST" "chat" "0" "error response (after ${max_retries} retries)"
     echo "${result}"
     return 0
 }

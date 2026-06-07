@@ -391,6 +391,60 @@ baish_output_pipeline_cleanup() {
 # ============================================================================
 
 # Print user-facing guidance when context overflow is detected.
+# ============================================================================
+# Context summary — shown at startup
+# ============================================================================
+
+# Display a summary of additional context files loaded at startup:
+# AGENTS.md files and any pre-loaded skills.
+baish_output_context_summary() {
+    local -a agents_files
+    local i
+
+    # Collect AGENTS.md loaded files
+    while IFS= read -r f; do
+        agents_files+=("${f}")
+    done < <(baish_agents_md_get_loaded_files)
+
+    local has_context=0
+
+    # Show AGENTS.md files
+    if [[ ${#agents_files[@]} -gt 0 ]]; then
+        has_context=1
+        local label="AGENTS.md"
+        if [[ ${#agents_files[@]} -gt 1 ]]; then
+            label="AGENTS.md files"
+        fi
+        printf "  ${_BAISH_COLOR_DIM}📋 Loaded ${label}:${_BAISH_COLOR_RESET}\n"
+        for f in "${agents_files[@]}"; do
+            # Show a relative path when possible
+            local display_path="${f}"
+            if [[ "${f}" == "${HOME}"/* ]]; then
+                display_path="~/${f#${HOME}/}"
+            fi
+            printf "    ${_BAISH_COLOR_DIM}• %s${_BAISH_COLOR_RESET}\n" "${display_path}"
+        done
+    fi
+
+    # Show loaded skills
+    if [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -gt 0 ]]; then
+        has_context=1
+        local label="skill"
+        if [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -gt 1 ]]; then
+            label="skills"
+        fi
+        printf "  ${_BAISH_COLOR_DIM}🧠 Loaded ${label}:${_BAISH_COLOR_RESET}\n"
+        for s in "${BAISH_SESSION_SKILL_NAMES[@]}"; do
+            printf "    ${_BAISH_COLOR_DIM}• %s${_BAISH_COLOR_RESET}\n" "${s}"
+        done
+    fi
+
+    if (( has_context == 0 )); then
+        printf "  ${_BAISH_COLOR_DIM}📋 No additional context files loaded.${_BAISH_COLOR_RESET}\n"
+    fi
+    printf "\n"
+}
+
 baish_output_context_overflow_help() {
     baish_output_info ""
     baish_output_info "⚠️  Context window exceeded — the conversation is too long for the model."

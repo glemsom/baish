@@ -315,3 +315,230 @@ teardown() {
     # gum format inserts ANSI codes between words, so check word-by-word
     [[ "${output}" == *"Hello"* ]] && [[ "${output}" == *"mock"* ]]
 }
+
+# ============================================================
+# Provider retry configuration defaults
+# ============================================================
+
+@test "BAISH_PROVIDER_RETRY_MAX defaults to 5" {
+    # config.sh is already sourced in setup; verify default is set
+    [[ "${BAISH_PROVIDER_RETRY_MAX}" -eq 5 ]]
+}
+
+@test "BAISH_PROVIDER_RETRY_DELAY defaults to 1" {
+    [[ "${BAISH_PROVIDER_RETRY_DELAY}" -eq 1 ]]
+}
+
+# ============================================================
+# Provider retry — permanent errors: NO retry
+# ============================================================
+
+@test "retry: does NOT retry on AUTH_FAILURE — propagates immediately" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=3
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    # Track call count by overriding mock
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        jq -n --arg code "AUTH_FAILURE" '{"ok": false, "error": {"code": $code, "message": "invalid key"}}'
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local response
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+
+    local ok error_code count
+    ok=$(echo "${response}" | jq -r '.ok')
+    error_code=$(echo "${response}" | jq -r '.error.code')
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "AUTH_FAILURE" ]]
+    # Should NOT retry — only called once
+    [[ "${count}" -eq 1 ]]
+}
+
+@test "retry: does NOT retry on CONTEXT_OVERFLOW — propagates immediately" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=3
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        jq -n --arg code "CONTEXT_OVERFLOW" '{"ok": false, "error": {"code": $code, "message": "input too long"}}'
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local response
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+
+    local error_code count
+    error_code=$(echo "${response}" | jq -r '.error.code')
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    [[ "${error_code}" == "CONTEXT_OVERFLOW" ]]
+    [[ "${count}" -eq 1 ]]
+}
+
+@test "retry: does NOT retry on TOKEN_EXPIRED — propagates immediately" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=3
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        jq -n --arg code "TOKEN_EXPIRED" '{"ok": false, "error": {"code": $code, "message": "token expired"}}'
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local response
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+
+    local error_code count
+    error_code=$(echo "${response}" | jq -r '.error.code')
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    [[ "${error_code}" == "TOKEN_EXPIRED" ]]
+    [[ "${count}" -eq 1 ]]
+}
+
+# ============================================================
+# Provider retry — transient errors: retries
+# ============================================================
+
+@test "retry: retries on GENERIC_ERROR and propagates after max retries" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=3
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        jq -n --arg code "GENERIC_ERROR" '{"ok": false, "error": {"code": $code, "message": "transient failure"}}'
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local response
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+
+    local ok error_code count
+    ok=$(echo "${response}" | jq -r '.ok')
+    error_code=$(echo "${response}" | jq -r '.error.code')
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+    # Should have retried up to max (3 attempts)
+    [[ "${count}" -eq 3 ]]
+}
+
+@test "retry: retries on infrastructure failure (non-zero exit) and propagates after max" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=2
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        return 7  # simulate DNS/network failure
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local exit_code=0
+    baish_agent_provider_chat_capture "${request}" 2>/dev/null || exit_code=$?
+
+    local count
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    # Should propagate the exit code
+    [[ "${exit_code}" -eq 7 ]]
+    # Should have retried up to max (2 attempts)
+    [[ "${count}" -eq 2 ]]
+}
+
+@test "retry: succeeds when GENERIC_ERROR resolves on second attempt" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_PROVIDER_RETRY_MAX=3
+    BAISH_PROVIDER_RETRY_DELAY=0.01
+
+    local counter_file="/tmp/mock_call_count_$$"
+    echo "0" > "${counter_file}"
+    provider_mock_chat() {
+        local count
+        count=$(cat "${counter_file}")
+        count=$((count + 1))
+        echo "${count}" > "${counter_file}"
+        if (( count == 1 )); then
+            jq -n --arg code "GENERIC_ERROR" '{"ok": false, "error": {"code": $code, "message": "transient"}}'
+        else
+            jq -n --arg text "recovered after retry" '{"ok": true, "assistant_text": $text, "tool_calls": []}'
+        fi
+    }
+
+    local messages='[{"role":"user","content":"hello"}]'
+    local request
+    request=$(jq -n --argjson msg "${messages}" --argjson t '[]' '{"messages":$msg,"tools":$t}')
+    > "${BAISH_CHAT_STDERR_FILE}"
+    local response
+    response=$(baish_agent_provider_chat_capture "${request}" 2>/dev/null)
+
+    local ok text count
+    ok=$(echo "${response}" | jq -r '.ok')
+    text=$(echo "${response}" | jq -r '.assistant_text')
+    count=$(cat "${counter_file}")
+    rm -f "${counter_file}"
+
+    [[ "${ok}" == "true" ]]
+    [[ "${text}" == "recovered after retry" ]]
+    [[ "${count}" -eq 2 ]]
+}

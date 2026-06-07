@@ -460,3 +460,82 @@ create_project_agents_md() {
     [[ "${after}" == *"Project instructions"* ]]
     [[ "${after}" == "Global instructions"$'\n\n'"Project instructions" ]]
 }
+
+# ============================================================
+# get_loaded_files — tracking which files were loaded
+# ============================================================
+
+@test "AGENTS.md: get_loaded_files returns nothing when no files loaded" {
+    rm -f "${HOME}/.baish/AGENTS.md"
+    rm -f "${PWD}/AGENTS.md"
+
+    baish_agents_md_init
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 0 ]]
+}
+
+@test "AGENTS.md: get_loaded_files returns only global path when only global loaded" {
+    create_global_agents_md "Global instructions"
+    rm -f "${PWD}/AGENTS.md"
+
+    baish_agents_md_init
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 1 ]]
+    [[ "${files[0]}" == "${HOME}/.baish/AGENTS.md" ]]
+}
+
+@test "AGENTS.md: get_loaded_files returns only project path when only project loaded" {
+    rm -f "${HOME}/.baish/AGENTS.md"
+    create_project_agents_md "Project instructions"
+
+    baish_agents_md_init
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 1 ]]
+    # Project file stored as relative path "./AGENTS.md"
+    [[ "${files[0]}" == "./AGENTS.md" ]]
+}
+
+@test "AGENTS.md: get_loaded_files returns both paths when both loaded, global first" {
+    create_global_agents_md "Global instructions"
+    create_project_agents_md "Project instructions"
+
+    baish_agents_md_init
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 2 ]]
+    [[ "${files[0]}" == "${HOME}/.baish/AGENTS.md" ]]
+    [[ "${files[1]}" == "./AGENTS.md" ]]
+}
+
+@test "AGENTS.md: get_loaded_files survives /new reset" {
+    create_global_agents_md "Persistent"
+    create_project_agents_md "Also persistent"
+
+    baish_agents_md_init
+
+    baish_session_reset_context_window
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 2 ]]
+}
+
+@test "AGENTS.md: get_loaded_files does not include empty files" {
+    mkdir -p "${HOME}/.baish"
+    touch "${HOME}/.baish/AGENTS.md"  # empty file (0 bytes)
+    create_project_agents_md "Project instructions"
+
+    baish_agents_md_init
+
+    local files
+    readarray -t files < <(baish_agents_md_get_loaded_files)
+    [[ ${#files[@]} -eq 1 ]]
+    [[ "${files[0]}" == "./AGENTS.md" ]]
+}

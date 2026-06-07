@@ -13,6 +13,11 @@ setup() {
     # Source output module in isolation (no mock provider or agent loop needed)
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/agent/output.sh"
+    source "${BAISH_ROOT}/lib/agent/agents-md.sh"
+
+    # Reset AGENTS.md loaded files so context summary tests start clean
+    BAISH_AGENTS_MD_LOADED_FILES=()
+    BAISH_SESSION_SKILL_NAMES=()
 }
 
 # ── Banner ────────────────────────────────────────────────────────────
@@ -488,4 +493,74 @@ setup() {
     [[ "$output" == *"❌"* ]]
     [[ "$output" == *"rm -rf /"* ]]
     [[ "$output" == *"Permission denied"* ]]
+}
+
+# ── Context summary (startup) ───────────────────────────────────────────
+
+@test "baish_output_context_summary shows 'no additional context' when nothing loaded" {
+    BAISH_AGENTS_MD_LOADED_FILES=()
+    BAISH_SESSION_SKILL_NAMES=()
+
+    local output
+    output=$(baish_output_context_summary)
+
+    [[ "$output" == *"No additional context files loaded"* ]]
+}
+
+@test "baish_output_context_summary shows loaded AGENTS.md files" {
+    local fake_home="/tmp/fake-home-$$"
+    mkdir -p "${fake_home}/.baish"
+    # Temporarily override HOME so path display works
+    local saved_home="${HOME}"
+    HOME="${fake_home}"
+    BAISH_AGENTS_MD_LOADED_FILES=("${fake_home}/.baish/AGENTS.md")
+    BAISH_SESSION_SKILL_NAMES=()
+
+    local output
+    output=$(baish_output_context_summary)
+
+    HOME="${saved_home}"
+    rm -rf "${fake_home}"
+
+    # Should mention AGENTS.md (singular for one file)
+    [[ "$output" == *"AGENTS.md"* ]]
+    # The path should be shortened with ~/ prefix
+    [[ "$output" == *"~/.baish/AGENTS.md"* ]]
+}
+
+@test "baish_output_context_summary shows loaded skills" {
+    BAISH_AGENTS_MD_LOADED_FILES=()
+    BAISH_SESSION_SKILL_NAMES=("tdd" "diagnose")
+
+    local output
+    output=$(baish_output_context_summary)
+
+    # Should mention skills (plural for 2+)
+    [[ "$output" == *"skills"* ]]
+    [[ "$output" == *"tdd"* ]]
+    [[ "$output" == *"diagnose"* ]]
+    # Should not mention singular 'skill'
+    [[ "$output" != *"skill:"* ]]
+}
+
+@test "baish_output_context_summary shows both AGENTS.md and skills when both loaded" {
+    BAISH_AGENTS_MD_LOADED_FILES=("/tmp/test-global/AGENTS.md")
+    BAISH_SESSION_SKILL_NAMES=("tdd")
+
+    local output
+    output=$(baish_output_context_summary)
+
+    # Should mention both
+    [[ "$output" == *"AGENTS.md"* ]]
+    [[ "$output" == *"tdd"* ]]
+}
+
+@test "baish_output_context_summary uses singular 'skill' for exactly one skill" {
+    BAISH_AGENTS_MD_LOADED_FILES=()
+    BAISH_SESSION_SKILL_NAMES=("tdd")
+
+    local output
+    output=$(baish_output_context_summary)
+
+    [[ "$output" == *"skill:"* ]]
 }

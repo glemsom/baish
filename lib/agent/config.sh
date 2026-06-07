@@ -7,6 +7,12 @@ BAISH_MAX_TOOL_ROUNDS="${BAISH_MAX_TOOL_ROUNDS:-50}"
 # Bash command execution timeout in seconds
 BAISH_BASH_TIMEOUT="${BAISH_BASH_TIMEOUT:-120}"
 
+# Provider retry: max attempts for transient failures (network errors, etc.)
+BAISH_PROVIDER_RETRY_MAX="${BAISH_PROVIDER_RETRY_MAX:-5}"
+
+# Provider retry: delay in seconds between retry attempts
+BAISH_PROVIDER_RETRY_DELAY="${BAISH_PROVIDER_RETRY_DELAY:-1}"
+
 # Debug logging flag
 BAISH_DEBUG="${BAISH_DEBUG:-0}"
 
