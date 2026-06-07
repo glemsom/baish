@@ -32,8 +32,8 @@ Slash commands:
 EOF
 }
 
-# Resolve the script's own directory
-BAISH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve the script's own directory (follow symlinks for Docker symlink support)
+BAISH_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 
 # Source core modules
 source "${BAISH_ROOT}/lib/agent/config.sh"

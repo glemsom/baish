@@ -101,5 +101,5 @@ baish() {
         "${env_flags[@]}" \
         "${mount_flags[@]}" \
         baish:latest \
-        /workspace
+        baish /workspace
 }

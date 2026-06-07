@@ -219,8 +219,9 @@ docker_called_with() {
     rm -rf "${original_dir}"
 }
 
-# Test: baish passes workspace path as container argument
-@test "baish passes workspace path as container argument" {
+# Test: baish passes "baish /workspace" as the container command so entrypoint.sh
+# execs baish (not /workspace directly, which would be "Is a directory" error)
+@test "baish runs baish /workspace as container command" {
     local workspace
     workspace="$(mktemp -d)"
 
@@ -229,8 +230,9 @@ docker_called_with() {
     local recorded
     recorded="$(docker_called_with)"
     echo "docker called with: ${recorded}"
-    # The last argument should be /workspace (the dir inside container)
-    [[ "${recorded}" == *" /workspace" ]]
+    # The command passed to the container must be "baish /workspace" —
+    # not just "/workspace" (which caused entrypoint.sh to try exec on a dir)
+    [[ "${recorded}" == *" baish /workspace" ]]
 
     rm -rf "${workspace}"
 }
