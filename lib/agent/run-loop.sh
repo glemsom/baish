@@ -193,6 +193,10 @@ baish_agent_provider_chat_capture() {
     local stderr_file="${BAISH_CHAT_STDERR_FILE:-/tmp/baish_chat_stderr.$$}"
     local chat_fn="provider_${BAISH_CURRENT_PROVIDER}_chat"
 
+    # ARG_MAX note: passing messages/tools between bash functions does NOT
+    # go through exec, so large values are safe. The actual ARG_MAX risk is
+    # inside jq --argjson calls (see session.sh and chat-parser.sh fixes).
+
     local max_retries="${BAISH_PROVIDER_RETRY_MAX:-5}"
     local retry_delay="${BAISH_PROVIDER_RETRY_DELAY:-1}"
     local attempt result exit_code

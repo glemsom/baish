@@ -71,25 +71,24 @@ baish_provider_build_chat_payload() {
     local messages_json="$2"
     local tools_json="$3"
 
+    # Pipe messages_json via stdin (can be large); model and tools are small.
     if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
-        jq -n \
+        echo "${messages_json}" | jq \
             --arg model "${model}" \
-            --argjson messages "${messages_json}" \
             --argjson tools "${tools_json}" \
             '{
                 "model": $model,
-                "messages": $messages,
+                "messages": .,
                 "tools": $tools,
                 "stream": false,
                 "parallel_tool_calls": false
             }'
     else
-        jq -n \
+        echo "${messages_json}" | jq \
             --arg model "${model}" \
-            --argjson messages "${messages_json}" \
             '{
                 "model": $model,
-                "messages": $messages,
+                "messages": .,
                 "stream": false
             }'
     fi

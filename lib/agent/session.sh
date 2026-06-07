@@ -25,7 +25,8 @@ baish_session_reset_context_window() {
 baish_session_append_user_message() {
     local text="$1"
     local msg
-    msg=$(jq -n --arg role "user" --arg content "${text}" '{"role": $role, "content": $content}')
+    # Use stdin (not --arg) to avoid ARG_MAX when text is large
+    msg=$(printf '%s' "${text}" | jq -Rsc '{role: "user", content: .}')
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "User message appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }
@@ -57,8 +58,9 @@ baish_session_append_assistant_response() {
     ')
 
     local msg
-    msg=$(jq -n --arg role "assistant" --arg content "${text}" --argjson tc "${normalized_tc}" \
-        '{"role": $role, "content": $content, "tool_calls": $tc}')
+    # Use stdin for text (can be large); tool_calls stays as argjson (small)
+    msg=$(printf '%s' "${text}" | jq -Rsc --argjson tc "${normalized_tc}" \
+        '{role: "assistant", content: ., tool_calls: $tc}')
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "Assistant response appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }
@@ -75,8 +77,9 @@ baish_session_append_tool_result() {
     content_str=$(echo "${result_json}" | jq -c '.')
 
     local msg
-    msg=$(jq -n --arg role "tool" --arg tool_call_id "${tool_call_id}" --arg content "${content_str}" \
-        '{"role": $role, "tool_call_id": $tool_call_id, "content": $content}')
+    # Use stdin for content_str (can be large — tool outputs); small args stay as --arg
+    msg=$(printf '%s' "${content_str}" | jq -Rsc --arg tool_call_id "${tool_call_id}" \
+        '{role: "tool", tool_call_id: $tool_call_id, content: .}')
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "Tool result appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }
@@ -88,28 +91,42 @@ baish_session_build_request() {
 
     # Build the messages array starting with system message
     local full_messages
-    full_messages=$(jq -n --arg content "${system_prompt}" '[{"role": "system", "content": $content}]')
+    # Use stdin for system_prompt (can be large with custom prompts)
+    full_messages=$(printf '%s' "${system_prompt}" | jq -Rsc '[{"role": "system", "content": .}]')
 
     # Add skill system messages
+    # Use process substitution to avoid ARG_MAX — both full_messages (growing)
+    # and skill_content (potentially large SKILL.md files) flow through file
+    # descriptors, never as command-line arguments.
     local i
     for i in "${!BAISH_SESSION_SKILL_CONTENTS[@]}"; do
         local skill_content="${BAISH_SESSION_SKILL_CONTENTS[$i]}"
-        full_messages=$(echo "${full_messages}" | jq --arg content "${skill_content}" '. + [{"role": "system", "content": $content}]')
+        full_messages=$(jq -s '.[0] + [{"role": "system", "content": .[1]}]' \
+            <(echo "${full_messages}") \
+            <(printf '%s' "${skill_content}" | jq -Rsc '.'))
     done
 
     # Inject AGENTS.md content as a user message between skills and conversation
     local agents_content
     agents_content=$(baish_agents_md_get_content)
     if [[ -n "${agents_content}" ]]; then
-        full_messages=$(echo "${full_messages}" | jq --arg content "${agents_content}" '. + [{"role": "user", "content": $content}]')
+        full_messages=$(jq -s '.[0] + [{"role": "user", "content": .[1]}]' \
+            <(echo "${full_messages}") \
+            <(printf '%s' "${agents_content}" | jq -Rsc '.'))
     fi
 
     # Append conversation messages
+    # Process substitution avoids ARG_MAX: both full_messages (growing) and
+    # individual msg (can be large tool results) go through /dev/fd, not argv.
     local msg
     for msg in "${BAISH_SESSION_MESSAGES[@]}"; do
-        full_messages=$(echo "${full_messages}" | jq --argjson m "${msg}" '. + [$m]')
+        full_messages=$(jq -s '.[0] + [.[1]]' \
+            <(echo "${full_messages}") \
+            <(echo "${msg}"))
     done
 
-    jq -n --argjson messages "${full_messages}" --argjson tools "${tools_json}" \
-        '{"messages": $messages, "tools": $tools}'
+    # Final assembly: pipe full_messages via stdin (can be huge),
+    # tools_json via --argjson (always small — tool schema array).
+    echo "${full_messages}" | jq --argjson tools "${tools_json}" \
+        '{messages: ., tools: $tools}'
 }

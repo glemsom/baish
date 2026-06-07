@@ -486,6 +486,32 @@ teardown() {
     [[ -z "${content}" ]]
 }
 
+# --- ARG_MAX regression (Argument list too long) ---
+
+@test "baish_session_build_request handles large sessions without ARG_MAX overflow" {
+    # 50 rounds of user→assistant+tool_call→large_tool_result
+    local chunk
+    chunk=$(python3 -c "print('x' * 40000)" 2>/dev/null || yes x | head -c 40000 | tr -d '\n')
+
+    for (( i = 1; i <= 50; i++ )); do
+        baish_session_append_user_message "Read file /tmp/test${i}.txt"
+        baish_session_append_assistant_response \
+            "Here is file ${i}." \
+            "[{\"id\":\"call_${i}\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"/tmp/test${i}.txt\\\"}\"}]"
+        local tool_result
+        tool_result=$(jq -n --arg content "${chunk}" '{"ok":true,"data":{"stdout":$content}}')
+        baish_session_append_tool_result "call_${i}" "${tool_result}"
+    done
+
+    run baish_session_build_request '[]'
+
+    [[ "${status}" -eq 0 ]]
+    # Verify valid JSON and correct message count: 1 system + 50*(user+assistant+tool) = 151
+    local msg_count
+    msg_count=$(echo "${output}" | jq '.messages | length')
+    [[ "${msg_count}" -eq 151 ]]
+}
+
 @test "AGENTS.md content injected as user message between skills and conversation" {
     mkdir -p "${HOME}/.baish"
     echo "Always follow best practices." > "${HOME}/.baish/AGENTS.md"
