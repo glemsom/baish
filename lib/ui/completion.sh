@@ -4,7 +4,7 @@
 # slash command completion (tokens starting with /).
 
 # Registered slash commands
-BAISH_SLASH_COMMANDS=("/quit" "/exit" "/new" "/help" "/connect" "/provider" "/model")
+BAISH_SLASH_COMMANDS=("/quit" "/exit" "/new" "/help" "/connect" "/provider" "/model" "/skill:")
 
 # Handle TAB completion during read -e prompts.
 # Called via 'bind -x' when TAB is pressed in readline.
