@@ -465,3 +465,91 @@ teardown() {
     [[ "$tool_name" == "bash" ]]
     [[ "$stdout" == "dispatched" ]]
 }
+
+# ============================================================
+# Output truncation — 64KB limit per stream
+# ============================================================
+
+# ============================================================
+# Timeout fallback — when timeout(1) is not available
+# ============================================================
+
+@test "bash tool timeout fallback works when timeout command is hidden" {
+    local orig_path="$PATH"
+
+    # Create a sandbox with all needed tools except timeout
+    local sandbox
+    sandbox=$(mktemp -d)
+
+    # Symlink every external tool needed by baish_tool_bash, except timeout
+    for cmd in bash mktemp chmod head rm sleep kill cat echo printf true mkdir mv wc grep sed jq stat; do
+        ln -sf "$(type -P "$cmd")" "$sandbox/"
+    done
+
+    # Use only the sandbox PATH (no /usr/bin where timeout lives)
+    PATH="$sandbox"
+
+    # Verify timeout is NOT accessible
+    ! command -v timeout &>/dev/null
+
+    # Test 1: fallback still executes a simple command
+    local result
+    BAISH_BASH_TIMEOUT=5
+    result=$(baish_tool_bash '{"command":"echo fallback_works"}')
+    local ok stdout
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+    [[ "$ok" == "true" ]]
+    [[ "$stdout" == "fallback_works" ]]
+
+    # Test 2: fallback enforces timeout
+    BAISH_BASH_TIMEOUT=2
+    result=$(baish_tool_bash '{"command":"sleep 10"}')
+    ok=$(echo "$result" | jq -r '.ok')
+    local code
+    code=$(echo "$result" | jq -r '.error.code')
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "TIMEOUT" ]]
+
+    # Restore PATH and clean up
+    PATH="$orig_path"
+    rm -rf "$sandbox"
+}
+
+@test "bash tool truncates stderr at 64KB" {
+    # Generate >64KB of stderr output
+    local result
+    result=$(baish_tool_bash '{"command":"yes \"STDERR_PATTERN_XYZ\" | head -c 102400 >&2"}')
+
+    local ok stderr
+    ok=$(echo "$result" | jq -r '.ok')
+    stderr=$(echo "$result" | jq -r '.data.stderr')
+
+    [[ "$ok" == "true" ]]
+
+    # stderr should be ≤ 65536 bytes
+    local stderr_len=${#stderr}
+    [[ "$stderr_len" -le 65536 ]]
+
+    # First bytes should match the generator pattern
+    [[ "$stderr" == "STDERR_PATTERN_XYZ"* ]]
+}
+
+@test "bash tool truncates stdout at 64KB" {
+    # Generate >64KB of stdout output
+    local result
+    result=$(baish_tool_bash '{"command":"yes \"0123456789ABCDEF\" | head -c 102400"}')
+
+    local ok stdout
+    ok=$(echo "$result" | jq -r '.ok')
+    stdout=$(echo "$result" | jq -r '.data.stdout')
+
+    [[ "$ok" == "true" ]]
+
+    # stdout should be ≤ 65536 bytes
+    local stdout_len=${#stdout}
+    [[ "$stdout_len" -le 65536 ]]
+
+    # First bytes should match the generator pattern
+    [[ "$stdout" == "0123456789ABCDEF"* ]]
+}

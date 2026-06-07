@@ -519,7 +519,7 @@ baish_tool_bash() {
         bash "$tmpscript" >"$stdout_file" 2>"$stderr_file" &
         local cmd_pid=$!
         local waited=0
-        while kill -0 "$cmd_pid" 2>/dev/null || true; do
+        while kill -0 "$cmd_pid" 2>/dev/null; do
             sleep 1
             waited=$((waited + 1))
             if (( waited >= BAISH_BASH_TIMEOUT )); then

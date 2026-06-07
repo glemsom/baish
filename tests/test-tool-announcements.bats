@@ -279,6 +279,52 @@ teardown() {
 }
 
 # ============================================================
+# ============================================================
+# Bash announcement truncation suffix — "… N lines omitted"
+# ============================================================
+
+@test "agent loop shows … N lines omitted suffix when bash stdout >5 lines" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I will run a command with many lines."
+    # Command that produces 10 lines of stdout
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-omit","name":"bash","arguments":"{\"command\":\"seq 10\"}"}]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_DEBUG=0
+
+    local output
+    output=$(baish_agent_run_user_message "Run seq" 2>/dev/null)
+
+    # The announcement line should contain the truncation suffix
+    [[ "$output" == *"… 5 lines omitted"* ]]
+
+    # The stdout content should still show (indented)
+    [[ "$output" == *"1"* ]]
+    [[ "$output" == *"10"* ]]
+}
+
+@test "agent loop shows stderr … N lines omitted suffix when bash stderr >5 lines" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_CURRENT_MODEL="mock-model"
+    BAISH_MOCK_RESPONSE="I will run a command with many stderr lines."
+    # Command that produces 8 lines of stdout and 8 lines of stderr
+    BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-stderr-omit","name":"bash","arguments":"{\"command\":\"seq 8; seq 8 >&2\"}"}]'
+    BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_TOOL_ROUNDS=0
+    BAISH_DEBUG=0
+
+    local output
+    output=$(baish_agent_run_user_message "Run stderr seq" 2>/dev/null)
+
+    # The suffix should show both stdout and stderr truncation
+    [[ "$output" == *"… 3 lines omitted, stderr … 3 lines omitted"* ]]
+
+    # The actual stdout/stderr content should still be displayed
+    [[ "$output" == *"1"* ]]
+    [[ "$output" == *"8"* ]]
+}
+
 # Pipeline stages complete without breaking announcement flow
 # ============================================================
 
