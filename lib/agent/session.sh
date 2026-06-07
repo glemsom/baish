@@ -89,6 +89,13 @@ baish_session_build_request() {
     local tools_json="$1"
     local system_prompt="${BAISH_SYSTEM_PROMPT:-You are BAISH, a Bash-first terminal AI coding agent.}"
 
+    # Append skill catalog to system prompt if available
+    local skill_catalog
+    skill_catalog=$(baish_skill_get_catalog)
+    if [[ -n "${skill_catalog}" ]]; then
+        system_prompt="${system_prompt}"$'\n\n'"${skill_catalog}"$'\n\n'"Load a skill with /skill:<name> or by using the read tool on its SKILL.md path."
+    fi
+
     # Build the messages array starting with system message
     local full_messages
     # Use stdin for system_prompt (can be large with custom prompts)

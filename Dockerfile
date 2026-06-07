@@ -52,16 +52,25 @@ RUN curl -fsSL "https://github.com/charmbracelet/gum/releases/download/${GUM_VER
     && dpkg -i /tmp/gum.deb \
     && rm -f /tmp/gum.deb
 
-# Create baish user (UID will be overridden at runtime via --user)
-RUN useradd -m -s /bin/bash baish && \
+# Remove the base image's default ubuntu user (UID 1000) and create the
+# baish user at UID 1000 instead. Most Linux systems have their first
+# real user at UID 1000, so matching that UID ensures bind-mounted host
+# files (like ~/.baish, ~/.gitconfig, ~/.ssh) have the same owner inside
+# the container as the process itself when --user $(id -u):$(id -g) is
+# passed at runtime.
+RUN userdel -r ubuntu && \
+    useradd -u 1000 -m -s /bin/bash baish && \
     chmod 755 /home/baish
 
 # Pre-create package manager cache directories so named Docker volume
 # mount points inherit world-writable permissions (issue #55). Without
 # this, Docker creates volume mount points as root-owned and the
-# non-root runtime user cannot write to them.
+# non-root runtime user cannot write to them. Also make intermediate
+# parent directories (.cache, .cargo) world-writable so tools can
+# create sibling files/dirs next to the volume mount points.
 RUN mkdir -p /home/baish/.npm /home/baish/.cache/pip /home/baish/.cargo/registry && \
-    chmod 777 /home/baish/.npm /home/baish/.cache/pip /home/baish/.cargo/registry
+    chmod 777 /home/baish/.npm /home/baish/.cache /home/baish/.cache/pip \
+             /home/baish/.cargo /home/baish/.cargo/registry
 
 # Install BAISH
 COPY . /opt/baish/

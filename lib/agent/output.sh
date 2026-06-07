@@ -483,14 +483,26 @@ baish_output_context_summary() {
         done
     fi
 
+    # Show available skills (scanned at startup, not yet loaded)
+    local skill_count
+    skill_count=$(baish_skill_count_available)
+    if [[ "${skill_count}" -gt 0 ]]; then
+        has_context=1
+        local label="skill available"
+        if [[ "${skill_count}" -gt 1 ]]; then
+            label="skills available"
+        fi
+        printf "  ${_BAISH_COLOR_DIM}🧠 ${skill_count} ${label} (use /skill:<name> to load)${_BAISH_COLOR_RESET}\n"
+    fi
+
     # Show loaded skills
     if [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -gt 0 ]]; then
         has_context=1
-        local label="skill"
+        local label="skill loaded"
         if [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -gt 1 ]]; then
-            label="skills"
+            label="skills loaded"
         fi
-        printf "  ${_BAISH_COLOR_DIM}🧠 Loaded ${label}:${_BAISH_COLOR_RESET}\n"
+        printf "  ${_BAISH_COLOR_DIM}📚 ${label}:${_BAISH_COLOR_RESET}\n"
         for s in "${BAISH_SESSION_SKILL_NAMES[@]}"; do
             printf "    ${_BAISH_COLOR_DIM}• %s${_BAISH_COLOR_RESET}\n" "${s}"
         done
