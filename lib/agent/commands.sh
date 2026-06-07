@@ -26,10 +26,13 @@ baish_dispatch_command() {
                 fi
             else
                 baish_output_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+                return 1
             fi
             ;;
         /provider)
-            baish_provider_select_interactive
+            if ! baish_provider_select_interactive; then
+                return 1
+            fi
             if [[ -n "${BAISH_CURRENT_PROVIDER}" ]]; then
                 if baish_provider_auth; then
                     baish_model_select_interactive
@@ -37,11 +40,14 @@ baish_dispatch_command() {
                     baish_output_info "Switched to ${BAISH_CURRENT_PROVIDER}/${BAISH_CURRENT_MODEL}"
                 else
                     baish_output_error "Authentication failed for ${BAISH_CURRENT_PROVIDER}"
+                    return 1
                 fi
             fi
             ;;
         /model)
-            baish_model_select_interactive
+            if ! baish_model_select_interactive; then
+                return 1
+            fi
             if [[ -n "${BAISH_CURRENT_MODEL}" ]]; then
                 baish_state_write "${BAISH_CURRENT_PROVIDER}" "${BAISH_CURRENT_MODEL}"
                 baish_output_info "Model set to: ${BAISH_CURRENT_MODEL}"

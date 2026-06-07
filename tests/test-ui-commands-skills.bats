@@ -93,6 +93,55 @@ teardown() {
 }
 
 # ============================================================
+# /connect, /provider, /model dispatch — guard paths
+# ============================================================
+
+@test "/connect prints error when no provider set" {
+    BAISH_CURRENT_PROVIDER=""
+
+    run baish_dispatch_command "/connect"
+
+    [[ "${status}" -ne 0 ]]
+    [[ "${output}" == *"Authentication failed"* ]]
+}
+
+@test "/provider prints error when no selectable providers available" {
+    # mock provider is non-selectable, so with only mock registered
+    # baish_provider_select_interactive will find 0 selectable providers.
+    BAISH_PROVIDER_IDS=("mock")
+    BAISH_CURRENT_PROVIDER=""
+
+    run baish_dispatch_command "/provider"
+
+    [[ "${status}" -ne 0 ]]
+    [[ "${output}" == *"No selectable providers available"* ]]
+}
+
+@test "/model prints error when provider has no models" {
+    BAISH_CURRENT_PROVIDER="mock"
+    BAISH_PROVIDER_IDS=("mock")
+
+    # Override mock list_models to return empty array
+    provider_mock_list_models() {
+        echo '[]'
+    }
+
+    run baish_dispatch_command "/model"
+
+    [[ "${status}" -ne 0 ]]
+    [[ "${output}" == *"No models available"* ]]
+}
+
+@test "/connect, /provider, /model appear in command listing" {
+    local completions
+    completions=$(baish_complete_commands_stdout "/")
+
+    [[ "${completions}" == *"/connect"* ]]
+    [[ "${completions}" == *"/provider"* ]]
+    [[ "${completions}" == *"/model"* ]]
+}
+
+# ============================================================
 # TAB completion — path completion (@)
 # ============================================================
 
