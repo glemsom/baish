@@ -187,6 +187,7 @@ baish_startup
 
 baish_output_banner
 baish_output_info "Provider: ${BAISH_CURRENT_PROVIDER} | Model: ${BAISH_CURRENT_MODEL}"
+baish_output_context_summary
 
 # Main interactive loop
 baish_main_loop() {
