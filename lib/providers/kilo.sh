@@ -23,14 +23,21 @@ provider_kilo_has_env_auth() {
     if [[ -n "${KILO_API_KEY:-}" ]]; then
         return 0
     fi
+    if [[ -n "${KILO_API_TOKEN:-}" ]]; then
+        return 0
+    fi
     return 1
 }
 
 # --- Load stored API key ---
 _kilo_load_api_key() {
-    # Prefer env var
+    # Prefer KILO_API_KEY, fall back to KILO_API_TOKEN (both are valid API tokens)
     if [[ -n "${KILO_API_KEY:-}" ]]; then
         echo "${KILO_API_KEY}"
+        return 0
+    fi
+    if [[ -n "${KILO_API_TOKEN:-}" ]]; then
+        echo "${KILO_API_TOKEN}"
         return 0
     fi
 

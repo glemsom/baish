@@ -41,6 +41,7 @@ setup() {
 teardown() {
     rm -rf "${BAISH_STATE_DIR}"
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
 }
 
 _curl_count() {
@@ -85,6 +86,7 @@ _curl_get_count() {
 
 @test "kilo returns no env auth when KILO_API_KEY is not set" {
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
     provider_kilo_has_env_auth || result=$?
     [[ "${result:-0}" -ne 0 ]]
 }
@@ -137,6 +139,7 @@ _curl_get_count() {
 
 @test "kilo loads API key from auth file when env not set" {
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
     local auth_file="${BAISH_AUTH_DIR}/kilo.json"
     mkdir -p "${BAISH_AUTH_DIR}"
     echo '{"api_key": "sk-from-file", "authenticated_at": "2026-06-05T00:00:00Z", "provider": "kilo"}' \
@@ -161,6 +164,7 @@ _curl_get_count() {
 
 @test "kilo returns empty string when no key available" {
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
 
     local key
     key=$(_kilo_load_api_key) || true
@@ -173,6 +177,7 @@ _curl_get_count() {
 
 @test "kilo model listing returns empty array when no API key" {
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
 
     local models
     models=$(provider_kilo_list_models)
@@ -364,6 +369,7 @@ _curl_get_count() {
 
 @test "kilo chat returns structured error when no API key" {
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
 
     local result
     result=$(provider_kilo_chat '[]' '[]')

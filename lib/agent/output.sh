@@ -92,9 +92,31 @@ baish_output_tool_error() {
     printf "${_BAISH_COLOR_DIM}  %s %s: %s${_BAISH_COLOR_RESET}\n" "${_BAISH_ICON_ERROR}" "${tool_name}" "${error_summary}"
 }
 
+# Truncate content to the last N lines for terminal preview.
+# Sets _baish_preview_lines (truncated content) and _baish_omitted_lines (count of omitted lines).
+# Args: content, max_lines
+_baish_output_preview_tail() {
+    local content="$1"
+    local max_lines="$2"
+    _baish_preview_lines=""
+    _baish_omitted_lines=0
+    if [[ -z "$content" ]]; then
+        return 0
+    fi
+    local total_lines
+    total_lines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
+    if (( total_lines <= max_lines )); then
+        _baish_preview_lines="${content}"
+        _baish_omitted_lines=0
+        return 0
+    fi
+    _baish_preview_lines=$(printf '%s\n' "$content" | tail -n "${max_lines}")
+    _baish_omitted_lines=$(( total_lines - max_lines ))
+}
+
 # Display bash tool output with colored formatting.
 # Icon is resolved from tool name internally.
-# Only the last 5 lines of stdout/stderr are shown to avoid filling the chat window.
+# Only the last BAISH_OUTPUT_PREVIEW_LINES of stdout/stderr are shown to avoid filling the chat window.
 # Args: tool_name, stdout, stderr, exit_code
 baish_output_bash_output() {
     local tool_name="$1"
@@ -103,15 +125,35 @@ baish_output_bash_output() {
     local exit_code="$4"
     local icon
     icon=$(_baish_output_tool_icon "${tool_name}")
+    local preview_lines="${BAISH_OUTPUT_PREVIEW_LINES:-7}"
+    local has_omitted=0
     if [[ -n "$stdout_content" ]]; then
-        local stdout_indented
-        stdout_indented=$(printf '%s\n' "$stdout_content" | sed 's/^/    /')
-        printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_indented"
+        _baish_output_preview_tail "$stdout_content" "${preview_lines}"
+        local stdout_out="${_baish_preview_lines}"
+        local stdout_omitted="${_baish_omitted_lines}"
+        if (( stdout_omitted > 0 )); then
+            has_omitted=1
+            printf "${_BAISH_COLOR_DIM}    … %s stdout lines omitted${_BAISH_COLOR_RESET}\n" "${stdout_omitted}"
+        fi
+        if [[ -n "$stdout_out" ]]; then
+            local stdout_indented
+            stdout_indented=$(printf '%s\n' "$stdout_out" | sed 's/^/    /')
+            printf "${_BAISH_COLOR_GREEN}%s${_BAISH_COLOR_RESET}\n" "$stdout_indented"
+        fi
     fi
     if [[ -n "$stderr_content" ]]; then
-        local stderr_indented
-        stderr_indented=$(printf '%s\n' "$stderr_content" | sed 's/^/    /')
-        printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_indented"
+        _baish_output_preview_tail "$stderr_content" "${preview_lines}"
+        local stderr_out="${_baish_preview_lines}"
+        local stderr_omitted="${_baish_omitted_lines}"
+        if (( stderr_omitted > 0 )); then
+            has_omitted=1
+            printf "${_BAISH_COLOR_DIM}    … %s stderr lines omitted${_BAISH_COLOR_RESET}\n" "${stderr_omitted}"
+        fi
+        if [[ -n "$stderr_out" ]]; then
+            local stderr_indented
+            stderr_indented=$(printf '%s\n' "$stderr_out" | sed 's/^/    /')
+            printf "${_BAISH_COLOR_RED}%s${_BAISH_COLOR_RESET}\n" "$stderr_indented"
+        fi
     fi
     if (( exit_code != 0 )); then
         printf "${_BAISH_COLOR_YELLOW}  %s exit code: %s${_BAISH_COLOR_RESET}\n" "${icon}" "$exit_code"

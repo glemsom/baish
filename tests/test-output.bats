@@ -587,3 +587,111 @@ setup() {
     [[ -n "${output}" ]]
     [[ "${output}" == *"Done"* ]]
 }
+
+# ── Output preview truncation (_baish_output_preview_tail) ─────────────
+
+@test "_baish_output_preview_tail returns all content when lines <= max" {
+    local content="line1
+line2
+line3"
+    _baish_output_preview_tail "${content}" 5
+    [[ "${_baish_preview_lines}" == "line1
+line2
+line3" ]]
+    [[ "${_baish_omitted_lines}" -eq 0 ]]
+}
+
+@test "_baish_output_preview_tail truncates to last N lines" {
+    local content
+    content=$(printf '%s\n' $(seq 1 10))
+    _baish_output_preview_tail "${content}" 3
+    # Should only have 3 lines: 8, 9, 10
+    local line_count
+    line_count=$(printf '%s\n' "${_baish_preview_lines}" | wc -l | tr -d ' ')
+    [[ "${line_count}" -eq 3 ]]
+    [[ "${_baish_omitted_lines}" -eq 7 ]]
+    [[ "${_baish_preview_lines}" == *"8"* ]]
+    [[ "${_baish_preview_lines}" == *"10"* ]]
+}
+
+@test "_baish_output_preview_tail reports correct omitted count" {
+    local content
+    content=$(printf '%s\n' $(seq 1 20))
+    _baish_output_preview_tail "${content}" 7
+    [[ "${_baish_omitted_lines}" -eq 13 ]]
+}
+
+@test "_baish_output_preview_tail handles empty content" {
+    _baish_output_preview_tail "" 5
+    [[ -z "${_baish_preview_lines}" ]]
+    [[ "${_baish_omitted_lines}" -eq 0 ]]
+}
+
+@test "_baish_output_preview_tail respects BAISH_OUTPUT_PREVIEW_LINES" {
+    BAISH_OUTPUT_PREVIEW_LINES=4
+    local content
+    content=$(printf '%s\n' $(seq 1 15))
+    _baish_output_preview_tail "${content}" "${BAISH_OUTPUT_PREVIEW_LINES}"
+    [[ "${_baish_omitted_lines}" -eq 11 ]]
+    local line_count
+    line_count=$(printf '%s\n' "${_baish_preview_lines}" | wc -l | tr -d ' ')
+    [[ "${line_count}" -eq 4 ]]
+}
+
+# ── Bash output display (truncated preview) ────────────────────────────
+
+@test "baish_output_bash_output shows full stdout when within preview limit" {
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=10 baish_output_bash_output "bash" "short output" "" 0)
+    [[ "$output" == *"short output"* ]]
+    # No omission note since all lines fit
+    [[ "$output" != *"stdout lines omitted"* ]]
+}
+
+@test "baish_output_bash_output shows omitted note for long stdout" {
+    local long_stdout
+    long_stdout=$(printf '%s\n' $(seq 1 100))
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=7 baish_output_bash_output "bash" "${long_stdout}" "" 0)
+    # Contains omission note
+    [[ "$output" == *"stdout lines omitted"* ]]
+    # Contains the last lines (not the first)
+    [[ "$output" == *"100"* ]]
+    [[ "$output" != *"1"* || "$output" == *"100"* ]]
+}
+
+@test "baish_output_bash_output shows omitted note for long stderr" {
+    local long_stderr
+    long_stderr=$(printf '%s\n' $(seq 1 50))
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=7 baish_output_bash_output "bash" "" "${long_stderr}" 0)
+    [[ "$output" == *"stderr lines omitted"* ]]
+    [[ "$output" == *"50"* ]]
+}
+
+@test "baish_output_bash_output shows exit code for non-zero exit" {
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=7 baish_output_bash_output "bash" "oops" "" 1)
+    [[ "$output" == *"exit code: 1"* ]]
+}
+
+@test "baish_output_bash_output handles both stdout and stderr with truncation" {
+    local stdout_content
+    stdout_content=$(printf '%s\n' $(seq 1 30))
+    local stderr_content="error line"
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=7 baish_output_bash_output "bash" "${stdout_content}" "${stderr_content}" 0)
+    # stdout truncated
+    [[ "$output" == *"stdout lines omitted"* ]]
+    # stderr not truncated (only 1 line)
+    [[ "$output" == *"error line"* ]]
+    [[ "$output" != *"stderr lines omitted"* ]]
+}
+
+@test "baish_output_bash_output omits nothing when both are within limit" {
+    local output
+    output=$(BAISH_OUTPUT_PREVIEW_LINES=7 baish_output_bash_output "bash" "line1" "line2" 0)
+    [[ "$output" != *"omitted"* ]]
+    [[ "$output" == *"line1"* ]]
+    [[ "$output" == *"line2"* ]]
+}

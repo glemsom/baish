@@ -341,9 +341,11 @@ assert_fn_exists() {
 }
 
 @test "kilo returns no env auth when KILO_API_KEY is not set" {
-    # Temporarily save and unset key
+    # Temporarily save and unset keys (both env var names are valid)
     local saved_kilo_key="${KILO_API_KEY:-}"
+    local saved_kilo_token="${KILO_API_TOKEN:-}"
     unset KILO_API_KEY 2>/dev/null || true
+    unset KILO_API_TOKEN 2>/dev/null || true
 
     # Capture return code inline
     local result=0
@@ -351,6 +353,7 @@ assert_fn_exists() {
 
     # Restore
     [[ -n "${saved_kilo_key}" ]] && export KILO_API_KEY="${saved_kilo_key}"
+    [[ -n "${saved_kilo_token}" ]] && export KILO_API_TOKEN="${saved_kilo_token}"
 
     [[ "${result}" -ne 0 ]]
 }

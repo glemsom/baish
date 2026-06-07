@@ -13,6 +13,10 @@ BAISH_PROVIDER_RETRY_MAX="${BAISH_PROVIDER_RETRY_MAX:-5}"
 # Provider retry: delay in seconds between retry attempts
 BAISH_PROVIDER_RETRY_DELAY="${BAISH_PROVIDER_RETRY_DELAY:-1}"
 
+# Maximum lines of tool output shown in the terminal preview.
+# Longer outputs are truncated to show only the last N lines.
+BAISH_OUTPUT_PREVIEW_LINES="${BAISH_OUTPUT_PREVIEW_LINES:-7}"
+
 # Debug logging flag
 BAISH_DEBUG="${BAISH_DEBUG:-0}"
 

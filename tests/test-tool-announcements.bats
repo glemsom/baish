@@ -280,14 +280,14 @@ teardown() {
 
 # ============================================================
 # ============================================================
-# Bash announcement truncation suffix — "… N lines omitted"
+# Bash output truncation — per-stream omission notes via baish_output_bash_output
 # ============================================================
 
-@test "agent loop shows … N lines omitted suffix when bash stdout >5 lines" {
+@test "agent loop shows per-stream stdout omission when bash stdout >preview lines" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
     BAISH_MOCK_RESPONSE="I will run a command with many lines."
-    # Command that produces 10 lines of stdout
+    # Command that produces 10 lines of stdout (default preview=7 → 3 omitted)
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-omit","name":"bash","arguments":"{\"command\":\"seq 10\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
@@ -296,19 +296,18 @@ teardown() {
     local output
     output=$(baish_agent_run_user_message "Run seq" 2>/dev/null)
 
-    # The announcement line should contain the truncation suffix
-    [[ "$output" == *"… 5 lines omitted"* ]]
+    # Per-stream omission note from baish_output_bash_output (not on announcement line)
+    [[ "$output" == *"3 stdout lines omitted"* ]]
 
-    # The stdout content should still show (indented)
-    [[ "$output" == *"1"* ]]
+    # The last 7 lines of stdout should show (lines 4-10)
     [[ "$output" == *"10"* ]]
 }
 
-@test "agent loop shows stderr … N lines omitted suffix when bash stderr >5 lines" {
+@test "agent loop shows separate stdout and stderr omission notes when both overflow" {
     BAISH_CURRENT_PROVIDER="mock"
     BAISH_CURRENT_MODEL="mock-model"
     BAISH_MOCK_RESPONSE="I will run a command with many stderr lines."
-    # Command that produces 8 lines of stdout and 8 lines of stderr
+    # Command that produces 8 lines of stdout and 8 lines of stderr (default preview=7 → 1 omitted each)
     BAISH_MOCK_TOOL_CALLS='[{"id":"tc-ann-stderr-omit","name":"bash","arguments":"{\"command\":\"seq 8; seq 8 >&2\"}"}]'
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
@@ -317,11 +316,11 @@ teardown() {
     local output
     output=$(baish_agent_run_user_message "Run stderr seq" 2>/dev/null)
 
-    # The suffix should show both stdout and stderr truncation
-    [[ "$output" == *"… 3 lines omitted, stderr … 3 lines omitted"* ]]
+    # Per-stream omission notes (separate, not a combined suffix)
+    [[ "$output" == *"1 stdout lines omitted"* ]]
+    [[ "$output" == *"1 stderr lines omitted"* ]]
 
-    # The actual stdout/stderr content should still be displayed
-    [[ "$output" == *"1"* ]]
+    # The actual stdout/stderr content should still be displayed (last 7 lines: 2-8)
     [[ "$output" == *"8"* ]]
 }
 
