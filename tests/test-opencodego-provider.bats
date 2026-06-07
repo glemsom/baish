@@ -1197,6 +1197,7 @@ teardown() {
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
     BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
 
     local response_body
@@ -1256,6 +1257,7 @@ teardown() {
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
     BAISH_CHAT_STDERR_FILE="${BAISH_STATE_DIR}/chat_stderr.txt"
 
     local response_body

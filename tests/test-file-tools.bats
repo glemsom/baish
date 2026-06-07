@@ -771,6 +771,7 @@ after" ]]
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Read e2e_read.txt"
 
@@ -793,6 +794,7 @@ after" ]]
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Write e2e_write.txt"
 
@@ -814,6 +816,7 @@ after" ]]
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Edit e2e_edit.txt"
 
@@ -832,6 +835,7 @@ after" ]]
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Read missing file"
 

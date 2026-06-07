@@ -524,6 +524,7 @@ assert_fn_exists() {
     BAISH_SESSION_MESSAGES=()
     BAISH_SESSION_TOOL_ROUNDS=0
     BAISH_DEBUG=0
+    BAISH_MAX_TOOL_ROUNDS=1
 
     baish_agent_run_user_message "Read test.txt"
 
