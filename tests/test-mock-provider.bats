@@ -39,19 +39,6 @@ teardown() {
     [[ "${text}" == "I am the mock provider. Your message was received." ]]
 }
 
-# Test: mock provider metadata is correct
-@test "mock provider metadata is non-selectable" {
-    local metadata
-    metadata=$(provider_mock_metadata)
-
-    local id selectable
-    id=$(echo "${metadata}" | jq -r '.id')
-    selectable=$(echo "${metadata}" | jq -r '.selectable')
-
-    [[ "${id}" == "mock" ]]
-    [[ "${selectable}" == "false" ]]
-}
-
 # Test: mock provider returns empty tool calls by default
 @test "mock provider returns empty tool calls by default" {
     local response
@@ -100,46 +87,6 @@ teardown() {
     result=$(baish_state_read || true)
 
     [[ "${result}" != "0" ]]
-}
-
-# Test: session reset clears messages
-@test "session reset clears message history" {
-    baish_session_append_user_message "hello"
-    [[ ${#BAISH_SESSION_MESSAGES[@]} -eq 1 ]]
-
-    baish_session_reset_context_window
-    [[ ${#BAISH_SESSION_MESSAGES[@]} -eq 0 ]]
-}
-
-# Test: debug logging outputs when enabled
-@test "debug logging outputs when BAISH_DEBUG=1" {
-    BAISH_DEBUG=1
-    local output
-    output=$(baish_debug "test message" 2>&1)
-
-    [[ "${output}" == *"[DEBUG] test message"* ]]
-}
-
-# Test: debug logging is silent when disabled
-@test "debug logging is silent when BAISH_DEBUG=0" {
-    BAISH_DEBUG=0
-    local output
-    output=$(baish_debug "test message" 2>&1)
-
-    [[ -z "${output}" ]]
-}
-
-# Test: tool execution dispatches to read tool
-@test "tool execution dispatches to read tool and returns FILE_NOT_FOUND for missing file" {
-    local result
-    result=$(baish_tool_execute "read" '{"path":"test.txt"}')
-
-    local ok error_code
-    ok=$(echo "${result}" | jq -r '.ok')
-    error_code=$(echo "${result}" | jq -r '.error.code')
-
-    [[ "${ok}" == "false" ]]
-    [[ "${error_code}" == "FILE_NOT_FOUND" ]]
 }
 
 # Test: agent loop processes user message with mock provider

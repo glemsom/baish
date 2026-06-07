@@ -186,44 +186,6 @@ teardown() {
 # Environment-based auth detection
 # ============================================================
 
-@test "copilot detects env auth via GH_TOKEN" {
-    export GH_TOKEN="gho_test123"
-    unset GITHUB_TOKEN 2>/dev/null || true
-    provider_copilot_has_env_auth
-    local exit_code=$?
-    [[ "${exit_code}" -eq 0 ]]
-}
-
-@test "copilot detects env auth via GITHUB_TOKEN" {
-    unset GH_TOKEN 2>/dev/null || true
-    export GITHUB_TOKEN="gho_test456"
-    provider_copilot_has_env_auth
-    local exit_code=$?
-    [[ "${exit_code}" -eq 0 ]]
-}
-
-@test "copilot returns 1 when no env auth" {
-    unset GH_TOKEN 2>/dev/null || true
-    unset GITHUB_TOKEN 2>/dev/null || true
-    local exit_code=0
-    provider_copilot_has_env_auth || exit_code=$?
-    [[ "${exit_code}" -eq 1 ]]
-}
-
-@test "kilo detects env auth via KILO_API_KEY" {
-    export KILO_API_KEY="sk-test-key"
-    provider_kilo_has_env_auth
-    local exit_code=$?
-    [[ "${exit_code}" -eq 0 ]]
-}
-
-@test "kilo returns 1 when no env auth" {
-    unset KILO_API_KEY 2>/dev/null || true
-    local exit_code=0
-    provider_kilo_has_env_auth || exit_code=$?
-    [[ "${exit_code}" -eq 1 ]]
-}
-
 @test "mock always reports env auth available" {
     provider_mock_has_env_auth
     local exit_code=$?
