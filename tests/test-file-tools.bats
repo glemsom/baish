@@ -184,6 +184,21 @@ d" ]]
     [[ "$content" == 'line with "quotes" and $dollar' ]]
 }
 
+@test "read tool returns PERMISSION_DENIED for non-readable file" {
+    printf 'secret\n' > "${BAISH_LAUNCH_DIR}/unreadable.txt"
+    chmod 000 "${BAISH_LAUNCH_DIR}/unreadable.txt"
+
+    local result
+    result=$(baish_tool_read '{"path":"unreadable.txt"}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "PERMISSION_DENIED" ]]
+}
+
 # ============================================================
 # Write tool
 # ============================================================
@@ -290,6 +305,21 @@ d" ]]
 
     [[ "$ok" == "false" ]]
     [[ "$code" == "IS_DIRECTORY" ]]
+}
+
+@test "write tool returns PERMISSION_DENIED for non-writable directory" {
+    mkdir -p "${BAISH_LAUNCH_DIR}/readonly"
+    chmod 555 "${BAISH_LAUNCH_DIR}/readonly"
+
+    local result
+    result=$(baish_tool_write '{"path":"readonly/newfile.txt","content":"test"}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "PERMISSION_DENIED" ]]
 }
 
 # ============================================================
@@ -546,6 +576,21 @@ GAMMA" ]]
 
     [[ "$ok" == "false" ]]
     [[ "$code" == "FILE_NOT_FOUND" ]]
+}
+
+@test "edit tool returns PERMISSION_DENIED for non-writable file" {
+    printf 'editable content\n' > "${BAISH_LAUNCH_DIR}/edit_unwritable.txt"
+    chmod 444 "${BAISH_LAUNCH_DIR}/edit_unwritable.txt"
+
+    local result
+    result=$(baish_tool_edit '{"path":"edit_unwritable.txt","edits":[{"oldText":"editable content","newText":"replacement"}]}')
+
+    local ok code
+    ok=$(echo "$result" | jq -r '.ok')
+    code=$(echo "$result" | jq -r '.error.code')
+
+    [[ "$ok" == "false" ]]
+    [[ "$code" == "PERMISSION_DENIED" ]]
 }
 
 @test "edit tool returns error when oldText not found" {

@@ -196,6 +196,18 @@ baish_tool_write() {
         return 0
     fi
 
+    # Check if target location is writable
+    local parent_dir
+    parent_dir="$(dirname "$path")"
+    if [[ -f "$path" && ! -w "$path" ]]; then
+        baish_tool_error_json "write" "PERMISSION_DENIED" "Cannot write to file: $path"
+        return 0
+    fi
+    if [[ ! -f "$path" && -d "$parent_dir" && ! -w "$parent_dir" ]]; then
+        baish_tool_error_json "write" "PERMISSION_DENIED" "Cannot create file in directory: $parent_dir"
+        return 0
+    fi
+
     # Create parent directories
     mkdir -p "$(dirname "$path")"
 
