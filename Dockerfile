@@ -71,5 +71,7 @@ RUN chmod +x /opt/baish/bin/baish && ln -s /opt/baish/bin/baish /usr/local/bin/b
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+USER baish
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["baish"]
