@@ -24,12 +24,20 @@ BAISH can run inside a Docker container for blast-radius reduction — accidenta
 docker build -t baish:latest .
 ```
 
+Rebuild the image if you need different or updated toolchain versions (e.g., a newer Node.js or Go release). The [Dockerfile](Dockerfile) at the repo root lists all installed toolchains.
+
 ### Sourcing the wrapper
 
 Source the wrapper function to get a `baish` shell command that launches the container with all necessary bind mounts, environment forwarding, and UID/GID matching:
 
 ```bash
 source docker/baish-wrapper.sh
+```
+
+For persistent access across shell sessions, add the source line to your `~/.bashrc`:
+
+```bash
+echo 'source /path/to/baish/docker/baish-wrapper.sh' >> ~/.bashrc
 ```
 
 Then use it like native BAISH:
