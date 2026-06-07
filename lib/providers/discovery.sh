@@ -160,7 +160,7 @@ baish_provider_select_interactive() {
     baish_debug "Provider selected: ${BAISH_CURRENT_PROVIDER}"
 }
 
-# Select a model interactively using gum
+# Select a model interactively using fzf (with gum fallback)
 # Sets BAISH_CURRENT_MODEL
 baish_model_select_interactive() {
     local list_models_fn="provider_${BAISH_CURRENT_PROVIDER}_list_models"
@@ -185,7 +185,7 @@ baish_model_select_interactive() {
         return 0
     fi
 
-    # Build display items for gum choose (grouped or flat)
+    # Build display items for fzf (grouped or flat)
     local display_options=()
     local model_ids=()
     local i
@@ -202,10 +202,25 @@ baish_model_select_interactive() {
         model_ids+=("${model_id}")
     done
 
+    # Use fzf for selection, with graceful fallback
     local picked
-    picked=$(printf '%s\n' "${display_options[@]}" | gum choose \
-        --header="Select a model" \
-        --height=20)
+    if command -v fzf &>/dev/null; then
+        picked=$(printf '%s\n' "${display_options[@]}" | fzf --prompt="Select a model > " --height=20 --layout=reverse-list 2>/dev/null)
+    elif command -v gum &>/dev/null; then
+        picked=$(printf '%s\n' "${display_options[@]}" | gum choose --header="Select a model" --height=20)
+    else
+        # Minimal fallback: numbered menu
+        baish_output_info "Available models:"
+        for i in "${!display_options[@]}"; do
+            baish_output_info "  $((i+1)). ${display_options[$i]}"
+        done
+        printf "Enter number (or empty to cancel): "
+        local choice
+        read -r choice
+        if [[ -n "${choice}" && "${choice}" =~ ^[0-9]+$ && "${choice}" -ge 1 && "${choice}" -le ${#display_options[@]} ]]; then
+            picked="${display_options[$((choice-1))]}"
+        fi
+    fi
 
     if [[ -z "${picked}" ]]; then
         baish_output_error "No model selected"
