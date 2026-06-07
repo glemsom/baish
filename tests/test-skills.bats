@@ -232,3 +232,13 @@ create_global_skill() {
     # Should load project content
     [[ "${BAISH_SESSION_SKILL_CONTENTS[0]}" == "Project content" ]]
 }
+
+@test "baish_skill_load handles empty SKILL.md content" {
+    create_project_skill "empty" ""
+
+    baish_skill_load "empty"
+
+    [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -eq 1 ]]
+    [[ "${BAISH_SESSION_SKILL_NAMES[0]}" == "empty" ]]
+    [[ -z "${BAISH_SESSION_SKILL_CONTENTS[0]}" ]]
+}
