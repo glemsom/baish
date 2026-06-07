@@ -564,3 +564,26 @@ setup() {
 
     [[ "$output" == *"skill:"* ]]
 }
+
+# ── Pipeline renderer: skip "execute" stage ────────────────────────────
+
+@test "_baish_output_pipeline_render produces no output for execute stage" {
+    local output
+    output=$(_baish_output_pipeline_render "execute")
+    # Must be empty — execute stage is handled by tool announcements
+    [[ -z "${output}" ]]
+}
+
+@test "_baish_output_pipeline_render still renders think stage" {
+    local output
+    output=$(_baish_output_pipeline_render "think")
+    [[ -n "${output}" ]]
+    [[ "${output}" == *"Reasoning"* ]]
+}
+
+@test "_baish_output_pipeline_render still renders done stage" {
+    local output
+    output=$(_baish_output_pipeline_render "done")
+    [[ -n "${output}" ]]
+    [[ "${output}" == *"Done"* ]]
+}

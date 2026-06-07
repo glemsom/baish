@@ -312,6 +312,13 @@ baish_output_pipeline_stage() {
 # Active stage is bold+green. Terminal stages (done/error) show final state.
 _baish_output_pipeline_render() {
     local current_stage="$1"
+    # Skip rendering for "execute" stage — tool announcements handle the display.
+    # The pipeline badge would race with tool announcement/result output on stdout,
+    # causing \r\033[K to clear the tool description, leaving users with no indication
+    # of what command is executing (visually "stuck").
+    if [[ "${current_stage}" == "execute" ]]; then
+        return 0
+    fi
     local current_idx
     current_idx=$(_baish_pipeline_stage_index "${current_stage}")
     if (( current_idx < 0 )); then
@@ -337,6 +344,14 @@ _baish_output_pipeline_renderer() {
         fi
 
         if [[ -z "${stage}" ]]; then
+            sleep 0.2
+            continue
+        fi
+
+        # Skip rendering for "execute" stage — tool announcements handle that display.
+        # Otherwise the pipeline badge's \r\033[K clears the tool description,
+        # making it look like the harness is stuck.
+        if [[ "${stage}" == "execute" ]]; then
             sleep 0.2
             continue
         fi
