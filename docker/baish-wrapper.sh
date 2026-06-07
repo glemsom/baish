@@ -97,7 +97,7 @@ baish() {
         --rm \
         --init \
         --privileged \
-        --user "$(id -u):$(id -g)" \
+        --user baish --group-add "$(id -g)" \
         "${env_flags[@]}" \
         "${mount_flags[@]}" \
         baish:latest \
