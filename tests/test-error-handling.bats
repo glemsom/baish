@@ -117,6 +117,16 @@ teardown() {
     [[ "${result}" -eq 1 ]]
 }
 
+@test "baish_handle_provider_error returns 1 and mentions token refresh for TOKEN_EXPIRED" {
+    local error_json='{"code":"TOKEN_EXPIRED","message":"token expired"}'
+    local output
+    local result=0
+    output=$(baish_handle_provider_error "${error_json}" "mock" 2>&1) || result=$?
+    [[ "${result}" -eq 1 ]]
+    [[ "${output}" == *"Token refresh"* ]]
+    [[ "${output}" == *"/connect"* ]]
+}
+
 # ============================================================
 # Mock provider error simulation
 # ============================================================
