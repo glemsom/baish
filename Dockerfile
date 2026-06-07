@@ -1,5 +1,5 @@
 # BAISH — Docker image for blast-radius reduction
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -44,6 +44,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # docker-compose up for projects that use it.
 RUN curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose \
     && chmod +x /usr/local/bin/docker-compose
+
+# Install gum (charmbracelet/gum) — download .deb from GitHub releases
+ARG GUM_VERSION=v0.17.0
+RUN curl -fsSL "https://github.com/charmbracelet/gum/releases/download/${GUM_VERSION}/gum_${GUM_VERSION#v}_amd64.deb" -o /tmp/gum.deb \
+    && dpkg -i /tmp/gum.deb \
+    && rm -f /tmp/gum.deb
 
 # Create baish user (UID will be overridden at runtime via --user)
 RUN useradd -m -s /bin/bash baish && \
