@@ -41,7 +41,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create baish user (UID will be overridden at runtime via --user)
-RUN useradd -m -s /bin/bash baish
+RUN useradd -m -s /bin/bash baish && \
+    chmod 755 /home/baish
+
+# Pre-create package manager cache directories so named Docker volume
+# mount points inherit world-writable permissions (issue #55). Without
+# this, Docker creates volume mount points as root-owned and the
+# non-root runtime user cannot write to them.
+RUN mkdir -p /home/baish/.npm /home/baish/.cache/pip /home/baish/.cargo/registry && \
+    chmod 777 /home/baish/.npm /home/baish/.cache/pip /home/baish/.cargo/registry
 
 # Install BAISH
 COPY . /opt/baish/

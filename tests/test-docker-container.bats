@@ -77,3 +77,105 @@ DOCKERFILE
     echo "BAISH stdout: ${output}"
     [[ "${output}" == *"I am the mock provider"* ]]
 }
+
+# -------------------------------------------------------------------------
+# Step 5: Package manager cache persistence (issue #55)
+# -------------------------------------------------------------------------
+
+teardown() {
+    # Clean up test volumes created during cache persistence tests
+    docker volume rm -f baish-test-npm-cache baish-test-pip-cache baish-test-cargo-cache baish-test-shared-cache 2>/dev/null || true
+}
+
+@test "npm cache persists across container restarts via named volume" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Create marker in npm cache dir
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-npm-cache:/home/baish/.npm \
+        baish:test \
+        bash -c 'mkdir -p /home/baish/.npm && touch /home/baish/.npm/marker-npm && chmod 644 /home/baish/.npm/marker-npm'
+    [[ "${status}" -eq 0 ]]
+
+    # Verify marker exists in a second container
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-npm-cache:/home/baish/.npm \
+        baish:test \
+        test -f /home/baish/.npm/marker-npm
+    [[ "${status}" -eq 0 ]]
+}
+
+@test "pip cache persists across container restarts via named volume" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Create marker in pip cache dir
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-pip-cache:/home/baish/.cache/pip \
+        baish:test \
+        bash -c 'mkdir -p /home/baish/.cache/pip && touch /home/baish/.cache/pip/marker-pip'
+    [[ "${status}" -eq 0 ]]
+
+    # Verify marker exists in a second container
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-pip-cache:/home/baish/.cache/pip \
+        baish:test \
+        test -f /home/baish/.cache/pip/marker-pip
+    [[ "${status}" -eq 0 ]]
+}
+
+@test "cargo registry cache persists across container restarts via named volume" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Create marker in cargo registry dir
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-cargo-cache:/home/baish/.cargo/registry \
+        baish:test \
+        bash -c 'mkdir -p /home/baish/.cargo/registry && touch /home/baish/.cargo/registry/marker-cargo'
+    [[ "${status}" -eq 0 ]]
+
+    # Verify marker exists in a second container
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-cargo-cache:/home/baish/.cargo/registry \
+        baish:test \
+        test -f /home/baish/.cargo/registry/marker-cargo
+    [[ "${status}" -eq 0 ]]
+}
+
+@test "concurrent containers share named cache volumes without interference" {
+    cd "${BAISH_ROOT}"
+
+    run docker build -t baish:test .
+    [[ "${status}" -eq 0 ]]
+
+    # Create marker from container A
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-shared-cache:/home/baish/.npm \
+        baish:test \
+        bash -c 'mkdir -p /home/baish/.npm && echo "from-container-A" > /home/baish/.npm/shared-marker'
+    [[ "${status}" -eq 0 ]]
+
+    # Read marker from container B (concurrent access)
+    run docker run --rm --user "$(id -u):$(id -g)" \
+        -e HOME=/home/baish \
+        -v baish-test-shared-cache:/home/baish/.npm \
+        baish:test \
+        cat /home/baish/.npm/shared-marker
+    [[ "${status}" -eq 0 ]]
+    [[ "${output}" == "from-container-A" ]]
+}

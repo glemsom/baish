@@ -295,7 +295,7 @@ docker_called_with() {
     echo "docker called with: ${recorded}"
     [[ "${recorded}" == *"-v baish-npm-cache:/home/baish/.npm"* ]]
     [[ "${recorded}" == *"-v baish-pip-cache:/home/baish/.cache/pip"* ]]
-    [[ "${recorded}" == *"-v baish-cargo-cache:/home/baish/.cargo"* ]]
+    [[ "${recorded}" == *"-v baish-cargo-cache:/home/baish/.cargo/registry"* ]]
 
     rm -rf "${workspace}"
 }

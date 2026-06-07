@@ -62,7 +62,7 @@ baish() {
     fi
     mount_flags+=(-v "baish-npm-cache:/home/baish/.npm")
     mount_flags+=(-v "baish-pip-cache:/home/baish/.cache/pip")
-    mount_flags+=(-v "baish-cargo-cache:/home/baish/.cargo")
+    mount_flags+=(-v "baish-cargo-cache:/home/baish/.cargo/registry")
 
     # Build and run the docker command
     docker run \
