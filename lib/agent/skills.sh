@@ -130,6 +130,9 @@ baish_skill_scan_available() {
     _baish_skill_scan_dir "${launch_dir}"
     _baish_skill_scan_dir "${home_dir}"
 
+    # Populate global available skill names array for TAB completion
+    BAISH_AVAILABLE_SKILL_NAMES=()
+
     # Build XML block
     if [[ ${#catalog_entries[@]} -eq 0 ]]; then
         BAISH_SKILL_CATALOG_XML=""
@@ -147,6 +150,7 @@ baish_skill_scan_available() {
         xml+="    <description>${entry_desc}</description>"$'\n'
         xml+="    <location>${entry_location}</location>"$'\n'
         xml+="  </skill>"$'\n'
+        BAISH_AVAILABLE_SKILL_NAMES+=("${entry_name}")
     done
     xml+="</available_skills>"
 

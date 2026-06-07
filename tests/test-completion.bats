@@ -129,8 +129,8 @@ teardown() {
     run baish_complete_commands_stdout "/"
 
     [[ "${status}" -eq 0 ]]
-    # Should return all registered commands
-    [[ "${#lines[@]}" -eq 7 ]]
+    # Should return all registered commands (/quit /exit /new /help /connect /provider /model /skill:)
+    [[ "${#lines[@]}" -eq 8 ]]
 }
 
 @test "baish_complete_commands_stdout returns nothing for unknown prefix" {
@@ -148,9 +148,8 @@ teardown() {
     [[ "${lines[0]}" == "/quit" ]]
 }
 
-@test "baish_complete_commands_stdout matches /skill: prefix against loaded skill names" {
-    # Load some skills
-    BAISH_SESSION_SKILL_NAMES=("python-helper" "code-reviewer" "debugger")
+@test "baish_complete_commands_stdout matches /skill: prefix against available skill names" {
+    BAISH_AVAILABLE_SKILL_NAMES=("python-helper" "code-reviewer" "debugger")
 
     run baish_complete_commands_stdout "/skill:py"
 
@@ -160,7 +159,7 @@ teardown() {
 }
 
 @test "baish_complete_commands_stdout matches multiple skills with /skill: prefix" {
-    BAISH_SESSION_SKILL_NAMES=("python-helper" "python-linter" "debugger")
+    BAISH_AVAILABLE_SKILL_NAMES=("python-helper" "python-linter" "debugger")
 
     run baish_complete_commands_stdout "/skill:py"
 
@@ -171,7 +170,7 @@ teardown() {
 }
 
 @test "baish_complete_commands_stdout returns nothing for /skill: prefix with no matching skills" {
-    BAISH_SESSION_SKILL_NAMES=("helper" "linter")
+    BAISH_AVAILABLE_SKILL_NAMES=("helper" "linter")
 
     run baish_complete_commands_stdout "/skill:py"
 
@@ -179,8 +178,8 @@ teardown() {
     [[ "${#lines[@]}" -eq 0 ]]
 }
 
-@test "baish_complete_commands_stdout returns nothing for /skill: prefix when no skills are loaded" {
-    BAISH_SESSION_SKILL_NAMES=()
+@test "baish_complete_commands_stdout returns nothing for /skill: prefix when no skills are available" {
+    BAISH_AVAILABLE_SKILL_NAMES=()
 
     run baish_complete_commands_stdout "/skill:"
 
@@ -188,8 +187,8 @@ teardown() {
     [[ "${#lines[@]}" -eq 0 ]]
 }
 
-@test "baish_complete_commands_stdout matches /skill: with empty prefix lists all skills" {
-    BAISH_SESSION_SKILL_NAMES=("helper" "coder")
+@test "baish_complete_commands_stdout matches /skill: with empty prefix lists all available skills" {
+    BAISH_AVAILABLE_SKILL_NAMES=("helper" "coder")
 
     run baish_complete_commands_stdout "/skill:"
 
@@ -218,7 +217,7 @@ teardown() {
 }
 
 @test "baish_complete_input returns nothing for /skill: prefix with no skills" {
-    BAISH_SESSION_SKILL_NAMES=()
+    BAISH_AVAILABLE_SKILL_NAMES=()
 
     run baish_complete_input "/skill:py" "${TEST_PROJECT_DIR}"
 

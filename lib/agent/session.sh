@@ -6,6 +6,10 @@ BAISH_SESSION_MESSAGES=()
 BAISH_SESSION_SKILL_NAMES=()
 BAISH_SESSION_SKILL_CONTENTS=()
 
+# All available skill names (populated at startup by baish_skill_scan_available)
+# Used by TAB completion for /skill: prefix
+BAISH_AVAILABLE_SKILL_NAMES=()
+
 # Provider selection
 BAISH_CURRENT_PROVIDER=""
 BAISH_CURRENT_MODEL=""

@@ -203,7 +203,7 @@ baish_complete_commands() {
     if [[ "${word}" == /skill:* ]]; then
         local skill_prefix="${word#/skill:}"
         local skill_name
-        for skill_name in "${BAISH_SESSION_SKILL_NAMES[@]}"; do
+        for skill_name in "${BAISH_AVAILABLE_SKILL_NAMES[@]}"; do
             if [[ "${skill_name}" == "${skill_prefix}"* ]]; then
                 COMPREPLY+=("/skill:${skill_name}")
             fi
@@ -229,7 +229,7 @@ baish_complete_commands_stdout() {
     if [[ "${word}" == /skill:* ]]; then
         local skill_prefix="${word#/skill:}"
         local skill_name
-        for skill_name in "${BAISH_SESSION_SKILL_NAMES[@]}"; do
+        for skill_name in "${BAISH_AVAILABLE_SKILL_NAMES[@]}"; do
             if [[ "${skill_name}" == "${skill_prefix}"* ]]; then
                 echo "/skill:${skill_name}"
             fi
