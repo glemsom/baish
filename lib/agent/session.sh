@@ -97,6 +97,13 @@ baish_session_build_request() {
         full_messages=$(echo "${full_messages}" | jq --arg content "${skill_content}" '. + [{"role": "system", "content": $content}]')
     done
 
+    # Inject AGENTS.md content as a user message between skills and conversation
+    local agents_content
+    agents_content=$(baish_agents_md_get_content)
+    if [[ -n "${agents_content}" ]]; then
+        full_messages=$(echo "${full_messages}" | jq --arg content "${agents_content}" '. + [{"role": "user", "content": $content}]')
+    fi
+
     # Append conversation messages
     local msg
     for msg in "${BAISH_SESSION_MESSAGES[@]}"; do

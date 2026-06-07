@@ -25,6 +25,7 @@ setup() {
     source "${BAISH_ROOT}/lib/agent/output.sh"
     source "${BAISH_ROOT}/lib/agent/session.sh"
     source "${BAISH_ROOT}/lib/agent/skills.sh"
+    source "${BAISH_ROOT}/lib/agent/agents-md.sh"
     source "${BAISH_ROOT}/lib/agent/commands.sh"
     source "${BAISH_ROOT}/lib/agent/run-loop.sh"
     source "${BAISH_ROOT}/lib/providers/discovery.sh"

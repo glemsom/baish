@@ -42,6 +42,7 @@ source "${BAISH_ROOT}/lib/tools/tools.sh"
 source "${BAISH_ROOT}/lib/agent/output.sh"
 source "${BAISH_ROOT}/lib/agent/session.sh"
 source "${BAISH_ROOT}/lib/agent/skills.sh"
+source "${BAISH_ROOT}/lib/agent/agents-md.sh"
 source "${BAISH_ROOT}/lib/agent/commands.sh"
 source "${BAISH_ROOT}/lib/agent/run-loop.sh"
 source "${BAISH_ROOT}/lib/providers/discovery.sh"
@@ -69,6 +70,9 @@ baish_state_init
 
 # Discover all providers
 baish_discover_providers
+
+# Initialize agent instructions (AGENTS.md) — loaded once, survives /new
+baish_agents_md_init
 
 # Startup: select provider and model
 baish_startup() {

@@ -18,9 +18,17 @@ setup() {
     BAISH_SESSION_SKILL_CONTENTS=()
     BAISH_SESSION_TOOL_ROUNDS=0
 
+    # Reset AGENTS.md content between tests
+    BAISH_AGENTS_MD_CONTENT=""
+
+    # Clean up any AGENTS.md files left by previous tests
+    rm -f "${HOME}/.baish/AGENTS.md"
+    rm -f "$(pwd)/AGENTS.md"
+
     # Source modules under test
     source "${BAISH_ROOT}/lib/agent/config.sh"
     source "${BAISH_ROOT}/lib/agent/session.sh"
+    source "${BAISH_ROOT}/lib/agent/agents-md.sh"
 }
 
 teardown() {
@@ -392,4 +400,117 @@ teardown() {
     local tool_content
     tool_content=$(echo "${result}" | jq -r '.messages[3].content')
     [[ "${tool_content}" == '{"ok":true,"content":"file contents"}' ]]
+}
+
+# --- AGENTS.md loading ---
+
+@test "baish_agents_md_init loads global AGENTS.md" {
+    mkdir -p "${HOME}/.baish"
+    echo "Global agent instructions" > "${HOME}/.baish/AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ "${content}" == "Global agent instructions" ]]
+}
+
+@test "baish_agents_md_init loads project AGENTS.md" {
+    echo "Project agent instructions" > "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ "${content}" == "Project agent instructions" ]]
+}
+
+@test "baish_agents_md_init concatenates global then project AGENTS.md" {
+    mkdir -p "${HOME}/.baish"
+    echo "Global instructions" > "${HOME}/.baish/AGENTS.md"
+    echo "Project instructions" > "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ "${content}" == *"Global instructions"* ]]
+    [[ "${content}" == *"Project instructions"* ]]
+    # Global should come before project
+    [[ "$(echo "${content}" | head -1)" == "Global instructions" ]]
+}
+
+@test "baish_agents_md_init skips missing global AGENTS.md silently" {
+    rm -f "${HOME}/.baish/AGENTS.md"
+    echo "Project only" > "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ "${content}" == "Project only" ]]
+}
+
+@test "baish_agents_md_init skips missing project AGENTS.md silently" {
+    mkdir -p "${HOME}/.baish"
+    echo "Global only" > "${HOME}/.baish/AGENTS.md"
+    rm -f "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ "${content}" == "Global only" ]]
+}
+
+@test "baish_agents_md_init returns empty when neither file exists" {
+    rm -f "${HOME}/.baish/AGENTS.md"
+    rm -f "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ -z "${content}" ]]
+}
+
+@test "baish_agents_md_init skips empty files silently" {
+    mkdir -p "${HOME}/.baish"
+    touch "${HOME}/.baish/AGENTS.md"
+    touch "./AGENTS.md"
+
+    baish_agents_md_init
+
+    local content
+    content=$(baish_agents_md_get_content)
+    [[ -z "${content}" ]]
+}
+
+@test "AGENTS.md content injected as user message between skills and conversation" {
+    mkdir -p "${HOME}/.baish"
+    echo "Always follow best practices." > "${HOME}/.baish/AGENTS.md"
+
+    # Re-init to load the new file
+    baish_agents_md_init
+
+    BAISH_SESSION_SKILL_NAMES=("helper")
+    BAISH_SESSION_SKILL_CONTENTS=("You are a helpful assistant.")
+    baish_session_append_user_message "Hello"
+    baish_session_append_assistant_response "Hi" '[]'
+
+    local result
+    result=$(baish_session_build_request '[]')
+
+    local roles
+    roles=$(echo "${result}" | jq -r '.messages[].role' | tr '\n' ' ')
+    # Order: system, skill(system), agents_md(user), conversation(user), conversation(assistant)
+    [[ "${roles}" == "system system user user assistant " ]]
+
+    # The AGENTS.md user message should be between skills and conversation
+    local agents_role
+    agents_role=$(echo "${result}" | jq -r '.messages[2].role')
+    [[ "${agents_role}" == "user" ]]
+    local agents_content
+    agents_content=$(echo "${result}" | jq -r '.messages[2].content')
+    [[ "${agents_content}" == "Always follow best practices." ]]
 }
