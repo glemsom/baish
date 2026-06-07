@@ -157,6 +157,66 @@ _curl_get_count() {
     [[ -z "${token}" ]]
 }
 
+# ============================================================
+# GitHub token env var fallback
+# ============================================================
+
+@test "copilot load_github_token returns COPILOT_GITHUB_TOKEN when set" {
+    # No auth file — env fallback path
+    unset GH_TOKEN GITHUB_TOKEN
+    export COPILOT_GITHUB_TOKEN="gho_copilot_env_value"
+
+    local token
+    token=$(_copilot_load_github_token)
+
+    [[ "${token}" == "gho_copilot_env_value" ]]
+}
+
+@test "copilot load_github_token returns GH_TOKEN when set" {
+    unset COPILOT_GITHUB_TOKEN GITHUB_TOKEN
+    export GH_TOKEN="gho_gh_token_value"
+
+    local token
+    token=$(_copilot_load_github_token)
+
+    [[ "${token}" == "gho_gh_token_value" ]]
+}
+
+@test "copilot load_github_token returns GITHUB_TOKEN when set" {
+    unset COPILOT_GITHUB_TOKEN GH_TOKEN
+    export GITHUB_TOKEN="gho_github_token_value"
+
+    local token
+    token=$(_copilot_load_github_token)
+
+    [[ "${token}" == "gho_github_token_value" ]]
+}
+
+@test "copilot load_github_token respects env var precedence (COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN)" {
+    unset COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+    # Set all three in reverse precedence order
+    export GITHUB_TOKEN="gho_lowest"
+    export GH_TOKEN="gho_middle"
+    export COPILOT_GITHUB_TOKEN="gho_highest"
+
+    local token
+    token=$(_copilot_load_github_token)
+
+    # Highest precedence wins
+    [[ "${token}" == "gho_highest" ]]
+}
+
+@test "copilot load_github_token respects GH_TOKEN over GITHUB_TOKEN when COPILOT_GITHUB_TOKEN is unset" {
+    unset COPILOT_GITHUB_TOKEN
+    export GH_TOKEN="gho_middle"
+    export GITHUB_TOKEN="gho_lowest"
+
+    local token
+    token=$(_copilot_load_github_token)
+
+    [[ "${token}" == "gho_middle" ]]
+}
+
 @test "copilot runtime token refresh fails without github token" {
     _copilot_refresh_runtime_token || result=$?
     [[ "${result:-0}" -ne 0 ]]
