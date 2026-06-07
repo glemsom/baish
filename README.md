@@ -101,6 +101,33 @@ Each `baish` invocation in a different directory creates a separate container wi
 | `BAISH_BASH_TIMEOUT` | 120 | Shell command timeout in seconds |
 | `BAISH_DEBUG` | 0 | Enable debug logging: 0=off, 1=on |
 
+## Skills
+
+BAISH supports a skills system that loads custom instructions from `SKILL.md` files. Skills are loaded from:
+
+1. **Project-local** (`./.baish/skills/<name>/SKILL.md`) — takes precedence
+2. **User-global** (`~/.baish/skills/<name>/SKILL.md`)
+
+Project-local skills override user-global skills with the same name. Skills persist across `/new` resets. Load a skill with `/skill:<name>` or via the command palette.
+
+## Slash Commands and Command Palette
+
+BAISH provides slash commands for interactive control:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show help and available commands |
+| `/quit`, `/exit` | Exit the agent |
+| `/new` | Clear conversation history (keeps provider, model, skills) |
+| `/connect` | Authenticate current provider and pick a model |
+| `/provider` | Switch providers interactively |
+| `/model` | Switch models interactively |
+| `/skill:<name>` | Load a skill into the session |
+
+**TAB completion**: Press `TAB` for path completion (tokens starting with `@`) and slash command completion (tokens starting with `/`).
+
+**Command palette**: Press `Ctrl+G` to open an interactive emoji menu for common actions (New Session, Connect Provider, Switch Model, Load Skill, Show Skills, Help, Quit).
+
 ## Development
 
 ### Running tests
