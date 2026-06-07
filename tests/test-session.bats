@@ -227,7 +227,7 @@ teardown() {
     [[ ${BAISH_SESSION_TOOL_ROUNDS} -eq 0 ]]
 }
 
-@test "baish_session_reset_context_window keeps provider, model, and skills" {
+@test "baish_session_reset_context_window keeps provider and model, clears skills" {
     BAISH_CURRENT_PROVIDER="copilot"
     BAISH_CURRENT_MODEL="gpt-4"
     BAISH_SESSION_SKILL_NAMES=("my-skill")
@@ -237,9 +237,8 @@ teardown() {
 
     [[ "${BAISH_CURRENT_PROVIDER}" == "copilot" ]]
     [[ "${BAISH_CURRENT_MODEL}" == "gpt-4" ]]
-    [[ "${#BAISH_SESSION_SKILL_NAMES[@]}" -eq 1 ]]
-    [[ "${BAISH_SESSION_SKILL_NAMES[0]}" == "my-skill" ]]
-    [[ "${BAISH_SESSION_SKILL_CONTENTS[0]}" == "You are skilled." ]]
+    [[ "${#BAISH_SESSION_SKILL_NAMES[@]}" -eq 0 ]]
+    [[ "${#BAISH_SESSION_SKILL_CONTENTS[@]}" -eq 0 ]]
 }
 
 @test "baish_session_reset_context_window handles empty session gracefully" {

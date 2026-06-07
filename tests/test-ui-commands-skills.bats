@@ -5,7 +5,7 @@
 # - Slash command dispatch: /quit, /exit, /new, /connect, /provider, /model, /skill:<name>
 # - TAB completion for file paths (starting with @)
 # - TAB completion for slash commands (starting with /)
-# - Skills system: load, project-local override, persistence across /new
+# - Skills system: load, project-local override, cleared on /new
 # - System prompt ordering: base → skill messages → conversation history
 
 setup() {
@@ -75,15 +75,14 @@ teardown() {
     [[ "${BAISH_CURRENT_MODEL}" == "mock-model" ]]
 }
 
-@test "/new preserves loaded skills" {
+@test "/new clears force-loaded skills" {
     BAISH_SESSION_SKILL_NAMES=("tdd" "testing")
     BAISH_SESSION_SKILL_CONTENTS=("tdd skill content" "testing skill content")
 
     baish_dispatch_command "/new"
 
-    [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -eq 2 ]]
-    [[ "${BAISH_SESSION_SKILL_NAMES[0]}" == "tdd" ]]
-    [[ "${BAISH_SESSION_SKILL_CONTENTS[1]}" == "testing skill content" ]]
+    [[ ${#BAISH_SESSION_SKILL_NAMES[@]} -eq 0 ]]
+    [[ ${#BAISH_SESSION_SKILL_CONTENTS[@]} -eq 0 ]]
 }
 
 @test "unknown slash command returns error" {

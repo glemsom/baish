@@ -18,9 +18,11 @@ BAISH_CURRENT_MODEL=""
 BAISH_SESSION_EXIT_REQUESTED=0
 BAISH_SESSION_TOOL_ROUNDS=0
 
-# Reset conversation context (keeps provider, model, skills)
+# Reset conversation context (keeps provider and model; clears force-loaded skills)
 baish_session_reset_context_window() {
     BAISH_SESSION_MESSAGES=()
+    BAISH_SESSION_SKILL_NAMES=()
+    BAISH_SESSION_SKILL_CONTENTS=()
     BAISH_SESSION_TOOL_ROUNDS=0
     baish_debug "Session context cleared"
 }

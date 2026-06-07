@@ -2,7 +2,7 @@
 # BAISH — Skills system
 # Loads skills from project-local (./.baish/skills/<name>/SKILL.md) or
 # user-global (~/.baish/skills/<name>/SKILL.md). Project-local overrides
-# user-global. Skills persist across /new resets.
+# user-global. Force-loaded skills are cleared on /new.
 #
 # At startup, baish scans available skills and injects their names and
 # descriptions into the system prompt so the model knows what's available.
