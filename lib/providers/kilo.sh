@@ -193,14 +193,14 @@ provider_kilo_chat() {
     # NOTE: curl stderr (connection errors, TLS failures, etc.) intentionally
     # flows to the caller's stderr, where it is captured by the run-loop's
     # stderr capture file for diagnostics.
-    response=$(curl -s -w "\n%{http_code}" \
+    response=$(printf '%s' "${payload}" | curl -s -w "\n%{http_code}" \
         --connect-timeout 10 \
         --max-time 120 \
         -X POST \
         -H "Authorization: Bearer ${api_key}" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
-        -d "${payload}" \
+        -d @- \
         "${KILO_GATEWAY_URL}/chat/completions")
 
     local http_code body

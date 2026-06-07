@@ -311,7 +311,7 @@ _copilot_chat_single() {
 
     baish_debug "Copilot: sending to Chat Completions API (model: ${model})"
 
-    response=$(curl -s -w "\n%{http_code}" \
+    response=$(printf '%s' "${payload}" | curl -s -w "\n%{http_code}" \
         --connect-timeout 10 \
         --max-time 120 \
         -X POST \
@@ -319,7 +319,7 @@ _copilot_chat_single() {
         -H "Content-Type: application/json" \
         -H "Accept: application/json" \
         -H "Copilot-Integration-Id: vscode-chat" \
-        -d "${payload}" \
+        -d @- \
         "https://api.githubcopilot.com/chat/completions" 2>&1)
 
     local http_code body
