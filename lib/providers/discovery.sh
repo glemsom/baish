@@ -38,15 +38,36 @@ baish_discover_providers() {
         provider_id=$(echo "${new_funcs}" | grep -oP '^provider_\K[^_]+(?=_metadata$)' | head -1)
 
         if [[ -z "${provider_id}" ]]; then
-            baish_debug "Could not extract provider ID from ${provider_file}"
-            continue
+            # No new metadata function appeared in the environment — the file may
+            # redefine an existing one (duplicate) or may not be a provider file.
+            # Grep the source directly to find any provider_*_metadata definition.
+            local file_provider_id
+            file_provider_id=$(grep -oP '^\s*provider_\K[^_]+(?=_metadata\s*\(\s*\)?\s*\{?)' "${provider_file}" | head -1)
+            if [[ -n "${file_provider_id}" ]]; then
+                # This file defines a metadata function. If it's already registered, collide.
+                for pid in "${BAISH_PROVIDER_IDS[@]}"; do
+                    if [[ "${pid}" == "${file_provider_id}" ]]; then
+                        baish_output_error "Provider ID collision: '${file_provider_id}' is already registered. Cannot load duplicate provider."
+                        exit 1
+                    fi
+                done
+                # Not a collision — register it (functions were pre-sourced or already loaded)
+                provider_id="${file_provider_id}"
+            else
+                baish_debug "Could not extract provider ID from ${provider_file}"
+                before_funcs="${after_funcs}"
+                continue
+            fi
         fi
 
-        # Check for ID collision — if metadata fn already existed before sourcing, error
-        if echo "${before_funcs}" | grep -q "^provider_${provider_id}_metadata$"; then
-            baish_output_error "Provider ID collision: '${provider_id}' is already registered. Cannot load duplicate provider."
-            exit 1
-        fi
+        # Check for ID collision — is this provider already registered?
+        local pid
+        for pid in "${BAISH_PROVIDER_IDS[@]}"; do
+            if [[ "${pid}" == "${provider_id}" ]]; then
+                baish_output_error "Provider ID collision: '${provider_id}' is already registered. Cannot load duplicate provider."
+                exit 1
+            fi
+        done
 
         # Validate required functions exist
         local required_funcs=(

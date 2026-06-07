@@ -43,6 +43,70 @@ teardown() {
 }
 
 # ============================================================
+# Error path: collision detection
+# ============================================================
+
+@test "provider ID collision triggers exit 1" {
+    local real_providers="${BAISH_ROOT}/lib/providers"
+    local collider_a="${real_providers}/test-collision-a.sh"
+    local collider_b="${real_providers}/test-collision-b.sh"
+
+    # Both files define provider_collisiontest_* functions (same ID)
+    cat > "${collider_a}" << 'COLLISIONEOF'
+provider_collisiontest_metadata() { jq -n '{"id":"collisiontest","label":"Collision A","desc":"","selectable":false}'; }
+provider_collisiontest_auth() { return 0; }
+provider_collisiontest_list_models() { jq -n '[]'; }
+provider_collisiontest_chat() { jq -n '{"ok":true,"assistant_text":"","tool_calls":[]}'; }
+COLLISIONEOF
+
+    cat > "${collider_b}" << 'COLLISIONEOF'
+provider_collisiontest_metadata() { jq -n '{"id":"collisiontest","label":"Collision B","desc":"","selectable":false}'; }
+provider_collisiontest_auth() { return 0; }
+provider_collisiontest_list_models() { jq -n '[]'; }
+provider_collisiontest_chat() { jq -n '{"ok":true,"assistant_text":"","tool_calls":[]}'; }
+COLLISIONEOF
+
+    # Reset provider state so discovery starts fresh
+    BAISH_PROVIDER_IDS=()
+    BAISH_DISCOVERY_INIT=1
+
+    run baish_discover_providers
+
+    rm -f "${collider_a}" "${collider_b}"
+
+    [[ "$status" -eq 1 ]]
+    echo "${output}" | grep -qi "collision"
+}
+
+# ============================================================
+# Error path: missing required function
+# ============================================================
+
+@test "discovery of a provider missing a required function returns 1" {
+    local real_providers="${BAISH_ROOT}/lib/providers"
+    local partial="${real_providers}/test-partial-provider.sh"
+
+    # Create a provider file that's missing the chat function
+    cat > "${partial}" << 'PARTIALEOF'
+provider_partial_metadata() { jq -n '{"id":"partial","label":"Partial","desc":"","selectable":false}'; }
+provider_partial_auth() { return 0; }
+provider_partial_list_models() { jq -n '[]'; }
+# Intentionally missing: provider_partial_chat
+PARTIALEOF
+
+    # Reset provider state
+    BAISH_PROVIDER_IDS=()
+    BAISH_DISCOVERY_INIT=1
+
+    run baish_discover_providers
+
+    rm -f "${partial}"
+
+    [[ "$status" -eq 1 ]]
+    echo "${output}" | grep -qi "missing required function"
+}
+
+# ============================================================
 # Provider discovery
 # ============================================================
 
