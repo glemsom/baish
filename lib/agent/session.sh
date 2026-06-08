@@ -65,8 +65,15 @@ baish_session_append_assistant_response() {
 
     local msg
     # Use stdin for text (can be large); tool_calls stays as argjson (small)
-    msg=$(printf '%s' "${text}" | jq -Rsc --argjson tc "${normalized_tc}" \
-        '{role: "assistant", content: ., tool_calls: $tc}')
+    # Omit tool_calls key when empty — providers like DeepSeek reject empty arrays
+    # ("Expected an array with minimum length 1, but got an empty array instead").
+    if [[ "${normalized_tc}" == "[]" ]]; then
+        msg=$(printf '%s' "${text}" | jq -Rsc \
+            '{role: "assistant", content: .}')
+    else
+        msg=$(printf '%s' "${text}" | jq -Rsc --argjson tc "${normalized_tc}" \
+            '{role: "assistant", content: ., tool_calls: $tc}')
+    fi
     BAISH_SESSION_MESSAGES+=("${msg}")
     baish_debug "Assistant response appended (total messages: ${#BAISH_SESSION_MESSAGES[@]})"
 }

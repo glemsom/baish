@@ -96,20 +96,20 @@ teardown() {
     [[ "${content}" == "I am BAISH." ]]
 }
 
-@test "baish_session_append_assistant_response handles empty tool_calls gracefully" {
+@test "baish_session_append_assistant_response omits tool_calls key when empty" {
     baish_session_append_assistant_response "No tools needed." '[]'
 
-    local tc
-    tc=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq -c '.tool_calls')
-    [[ "${tc}" == "[]" ]]
+    local has_tc
+    has_tc=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq 'has("tool_calls")')
+    [[ "${has_tc}" == "false" ]]
 }
 
-@test "baish_session_append_assistant_response handles null tool_calls" {
+@test "baish_session_append_assistant_response omits tool_calls key when null" {
     baish_session_append_assistant_response "No tools." 'null'
 
-    local tc
-    tc=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq -c '.tool_calls')
-    [[ "${tc}" == "[]" ]]
+    local has_tc
+    has_tc=$(echo "${BAISH_SESSION_MESSAGES[0]}" | jq 'has("tool_calls")')
+    [[ "${has_tc}" == "false" ]]
 }
 
 @test "baish_session_append_assistant_response normalizes tool_calls to OpenAI format" {
