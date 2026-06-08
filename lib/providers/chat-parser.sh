@@ -71,6 +71,18 @@ baish_provider_build_chat_payload() {
     local messages_json="$2"
     local tools_json="$3"
 
+    # Warn when the payload approaches common API gateway limits.
+    # The request will still be sent — the API will reject or timeout if
+    # it's truly over the limit, and parse_chat_response_body will handle
+    # the resulting empty/invalid response gracefully.
+    if [[ "${BAISH_MAX_PAYLOAD_BYTES:-0}" -gt 0 ]]; then
+        local payload_bytes
+        payload_bytes=$(printf '%s' "${messages_json}" | wc -c | tr -d ' ')
+        if [[ "${payload_bytes}" -gt "${BAISH_MAX_PAYLOAD_BYTES}" ]]; then
+            baish_debug "Payload size (${payload_bytes} bytes) exceeds BAISH_MAX_PAYLOAD_BYTES (${BAISH_MAX_PAYLOAD_BYTES}). The API may reject or timeout on this request."
+        fi
+    fi
+
     # Pipe messages_json via stdin (can be large); model and tools are small.
     if [[ -n "${tools_json}" && "${tools_json}" != "[]" && "${tools_json}" != "null" ]]; then
         echo "${messages_json}" | jq \
@@ -99,8 +111,26 @@ baish_provider_build_chat_payload() {
 # ({id, type, function: {name, arguments}}) to internal format ({id, name, arguments}).
 # Args: body (JSON response body from a Chat Completions API)
 # Returns: {"ok": true, "assistant_text": "...", "tool_calls": [...]} on stdout
+#          {"ok": false, "error": {...}} if the body is empty or not a valid Chat Completions response.
 baish_provider_parse_chat_response_body() {
     local body="$1"
+
+    # Guard: empty body means the API returned nothing useful
+    if [[ -z "${body}" ]]; then
+        jq -n \
+            --arg msg "API returned an empty response — the request may have timed out. Try a smaller query or use /new to clear conversation history." \
+            '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+        return 0
+    fi
+
+    # Guard: body must be valid JSON with a .choices array.
+    # Non-JSON responses (HTML error pages, proxy messages, etc.) are caught here.
+    if ! echo "${body}" | jq -e '.choices' >/dev/null 2>&1; then
+        jq -n \
+            --arg msg "API returned an unrecognized response (may indicate a gateway timeout or upstream error). Try again or use /new to reduce conversation size." \
+            '{"ok": false, "error": {"code": "GENERIC_ERROR", "message": $msg}}'
+        return 0
+    fi
 
     local assistant_text
     assistant_text=$(echo "${body}" | jq -r '.choices[0].message.content // ""')

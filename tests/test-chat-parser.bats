@@ -301,3 +301,77 @@ setup() {
 
     [[ "${text}" == "" ]]
 }
+
+# --- parse_chat_response_body defensive validation (regression for --argjson crash) ---
+
+@test "parse_chat_response_body returns GENERIC_ERROR for empty body (regression: --argjson crash)" {
+    local result
+    result=$(baish_provider_parse_chat_response_body "" 2>/dev/null)
+    local exit_code=$?
+
+    local ok error_code error_message
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    error_message=$(echo "${result}" | jq -r '.error.message')
+
+    # Must return clean JSON, not crash with jq error
+    [[ "${exit_code}" -eq 0 ]]
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+    [[ "${error_message}" == *"empty"* ]]
+}
+
+@test "parse_chat_response_body returns GENERIC_ERROR for non-JSON body (HTML / proxy error page)" {
+    local body='<html><body>502 Bad Gateway</body></html>'
+
+    local result
+    result=$(baish_provider_parse_chat_response_body "${body}" 2>/dev/null)
+    local exit_code=$?
+
+    local ok error_code error_message
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    error_message=$(echo "${result}" | jq -r '.error.message')
+
+    # Must not crash with jq parse error
+    [[ "${exit_code}" -eq 0 ]]
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+    [[ "${error_message}" == *"unrecognized"* ]]
+}
+
+@test "parse_chat_response_body returns GENERIC_ERROR for valid JSON without .choices key" {
+    local body='{"error":{"message":"something went wrong"}}'
+
+    local result
+    result=$(baish_provider_parse_chat_response_body "${body}" 2>/dev/null)
+    local exit_code=$?
+
+    local ok error_code error_message
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+    error_message=$(echo "${result}" | jq -r '.error.message')
+
+    # Must not crash — body has no .choices, so can't be a Chat Completions response
+    [[ "${exit_code}" -eq 0 ]]
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+    [[ "${error_message}" == *"unrecognized"* ]]
+}
+
+@test "parse_chat_response_body returns GENERIC_ERROR for body with null choices" {
+    local body='{"choices":null}'
+
+    local result
+    result=$(baish_provider_parse_chat_response_body "${body}" 2>/dev/null)
+    local exit_code=$?
+
+    local ok error_code
+    ok=$(echo "${result}" | jq -r '.ok')
+    error_code=$(echo "${result}" | jq -r '.error.code')
+
+    # null is falsy in jq -e, so this should be caught
+    [[ "${exit_code}" -eq 0 ]]
+    [[ "${ok}" == "false" ]]
+    [[ "${error_code}" == "GENERIC_ERROR" ]]
+}

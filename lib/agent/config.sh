@@ -17,6 +17,11 @@ BAISH_PROVIDER_RETRY_DELAY="${BAISH_PROVIDER_RETRY_DELAY:-1}"
 # Longer outputs are truncated to show only the last N lines.
 BAISH_OUTPUT_PREVIEW_LINES="${BAISH_OUTPUT_PREVIEW_LINES:-7}"
 
+# Maximum payload size in bytes before a warning is emitted.
+# Many API gateways reject requests over 1–2 MB. Default: 1048576 (1 MB).
+# Set to 0 to disable the warning.
+BAISH_MAX_PAYLOAD_BYTES="${BAISH_MAX_PAYLOAD_BYTES:-1048576}"
+
 # Debug logging flag
 BAISH_DEBUG="${BAISH_DEBUG:-0}"
 
