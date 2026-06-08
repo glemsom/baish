@@ -52,6 +52,12 @@ RUN curl -fsSL "https://github.com/charmbracelet/gum/releases/download/${GUM_VER
     && dpkg -i /tmp/gum.deb \
     && rm -f /tmp/gum.deb
 
+# Install GitHub CLI (gh) — download .deb from GitHub releases
+ARG GH_VERSION=2.63.0
+RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" -o /tmp/gh.deb \
+    && dpkg -i /tmp/gh.deb \
+    && rm -f /tmp/gh.deb
+
 # Remove the base image's default ubuntu user (UID 1000) and create the
 # baish user at UID 1000 instead. Most Linux systems have their first
 # real user at UID 1000, so matching that UID ensures bind-mounted host
